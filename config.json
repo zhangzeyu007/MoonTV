@@ -6,9 +6,21 @@
       "name": "电影天堂资源",
       "detail": "http://caiji.dyttzyapi.com"
     },
-   "new_source_140": {
+    "new_source_140": {
+      "api": "https://api.wujinapi.net/api.php/provide/vod",
+      "name": "无尽资源"
+    },
+    "new_source_228": {
+      "api": "https://api.wujinapi.cc/api.php/provide/vod",
+      "name": "无尽资源cc"
+    },
+    "new_source_229": {
+      "api": "https://api.wujinapi.com/api.php/provide/vod",
+      "name": "无尽资源com"
+    },
+   "new": {
       "api": "https://api.wujinapi.net/api.php/provide/vod/",
-      "name": "无尽资源",
+      "name": "无尽资源1",
      "detail": "https://api.wujinapi.net"
     }
   }
