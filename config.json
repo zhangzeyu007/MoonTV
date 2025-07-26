@@ -3,11 +3,8 @@
   "api_site": {
    "new_source_140": {
       "api": "https://api.wujinapi.net/api.php/provide/vod/",
-      "name": "无尽资源"
-    },
-    "new_source_36": {
-      "api": "https://zzdj.cc/api.php/provide/vod/",
-      "name": "种子短剧"
+      "name": "无尽资源",
+     "detail": "https://api.wujinapi.net"
     }
   }
 }
