@@ -1,25 +1,93 @@
 {
   "cache_time": 7200,
   "api_site": {
-    "AV1": {
-      "api": "https://www.caoliuzyw.com/api.php/prodao/vod",
-      "name": "AV-草榴资源",
-      "detail": "https://www.caoliuzyw.com"
+     "new_source_1": {
+      "api": "http://4kdyg.fun/api.php/provide/vod/",
+      "name": "4K电影馆"
     },
-    "AV2": {
-      "api": "https://www.jingpinx.com/api.php/provide/vod",
-      "name": "AV-精品资源",
-      "detail": "https://www.jingpinx.com"
+    "new_source_3": {
+      "api": "http://ys9.cttv.vip/api.php/provide/vod/",
+      "name": "刺桐资源"
     },
-    "AV3": {
-      "api": "https://apilj.com/api.php/provide/vod/",
-      "name": "AV-辣椒资源",
-      "detail": "https://apilj.com"
+    "new_source_4": {
+      "api": "https://ddys.pro/api.php/provide/vod/",
+      "name": "低端影视"
     },
-    "AV4": {
-      "api": "https://apilsbzy1.com/api.php/provide/vod/",
-      "name": "AV-老色逼资源",
-      "detail": "https://apilsbzy1.com"
+    "new_source_7": {
+      "api": "https://fszy1.com/api.php/provide/vod/",
+      "name": "飞速资源2"
+    },
+    "new_source_8": {
+      "api": "https://m3u8.feisuzyapi.com/api.php/provide/vod/",
+      "name": "飞速资源3"
+    },
+    "new_source_9": {
+      "api": "http://gwcms.cttv.vip/api.php/provide/vod/",
+      "name": "官网资源"
+    },
+    "new_source_12": {
+      "api": "https://hw8.live/api.php/provide/vod/",
+      "name": "华为吧"
+    },
+    "new_source_15": {
+      "api": "https://kuaikan-api.com/api.php/provide/vod/",
+      "name": "快看资源"
+    },
+    "new_source_16": {
+      "api": "https://www.kuaiyunzy.com/api.php/provide/vod/",
+      "name": "快云资源"
+    },
+    "new_source_17": {
+      "api": "http://47.113.126.237:1234/api.php/provide/vod/",
+      "name": "每天资源"
+    },
+    "new_source_21": {
+      "api": "https://www.ahjiuman.com/api.php/provide/vod/",
+      "name": "飘花影院"
+    },
+    "new_source_22": {
+      "api": "https://caiji.qhzyapi.com/api.php/provide/vod/",
+      "name": "奇虎资源"
+    },
+    "new_source_24": {
+      "api": "https://simiyy.com/api.php/provide/vod/",
+      "name": "私密影院"
+    },
+    "new_source_26": {
+      "api": "http://zyz.ikum.cc:1214/api.php/provide/vod/",
+      "name": "TIMI蓝光"
+    },
+    "new_source_27": {
+      "api": "https://api.tiankongapi.com/api.php/provide/vod/",
+      "name": "天空资源1"
+    },
+    "new_source_30": {
+      "api": "https://collect.wolongzy.cc/api.php/provide/vod/",
+      "name": "卧龙资源"
+    },
+    "new_source_31": {
+      "api": "https://xzcjz.com/api.php/provide/vod/",
+      "name": "熊掌资源"
+    },
+    "new_source_32": {
+      "api": "https://www.inmi.app/api.php/provide/vod/",
+      "name": "映迷资源"
+    },
+    "new_source_33": {
+      "api": "http://ysm.tkbot.fun/api.php/provide/vod/",
+      "name": "影视猫"
+    },
+    "new_source_34": {
+      "api": "https://api.ylzy.me/api.php/provide/vod/",
+      "name": "鱼乐资源"
+    },
+    "new_source_35": {
+      "api": "https://zxzja.com/api.php/provide/vod/",
+      "name": "在线之家"
+    },
+    "new_source_36": {
+      "api": "https://zzdj.cc/api.php/provide/vod/",
+      "name": "种子短剧"
     }
   }
 }
