@@ -1,1 +1,122 @@
+{
+  "cache_time": 7200,
+  "api_site": {
+	 "AV1": {
+	  "api": "https://www.caoliuzyw.com/api.php/prodao/vod",
+	  "name": "AV-草榴资源",
+	 "detail": "https://www.caoliuzyw.com"
+	    },
+  "AV2": {
+	"api": "https://www.jingpinx.com/api.php/provide/vod",
+	"name": "AV-精品资源",
+	 "detail": "https://www.jingpinx.com"
+	    },
+	"AV3": {
+	"api": "https://apilj.com/api.php/provide/vod/",
+  "name": "AV-辣椒资源",
+  "detail": "https://apilj.com"
+	},
+	"AV4": {
+	"api": "https://apilsbzy1.com/api.php/provide/vod/",
+ "name": "AV-老色逼资源",
+	"detail": "https://apilsbzy1.com"
+	 },
+  "csp_91jav": {
+  "name": "AV-91Jav (无海报)",
+  "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/91jav.js"
+  },
+  "csp_avdb": {
+    "name": "AV-AVDB",
+    "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/avdb.js"
+  },
+  "csp_avtoday": {
+    "name": "AV-AV Today",
+    "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/avtoday.js"
+  },
+  "csp_Hanime1": {
+    "name": "AV-Hanime1",
+    "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/hanime.js"
+  },
+  "csp_hohoj": {
+    "name": "AV-HoHoJ",
+    "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/hohoj.js"
+  },
+  "csp_jable": {
+    "name": "AV-JableTV",
+    "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/jable.js"
+  },
+  "csp_JavMove": {
+    "name": "AV-JAVMove",
+    "api": "https://raw.githubusercontent.com/fangkuia/XPTV/main/js/javmove.js"
+  },
+  "csp_kanav": {
+    "name": "AV-KanAV",
+    "api": "https://raw.githubusercontent.com/fangkuia/XPTV/main/js/kanav.js"
+  },
+  "csp_kbjfan": {
+    "name": "AV-KBJFan",
+    "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/kbjfan.js"
+  },
+  "csp_KPM": {
+    "name": "AV-KoreaPornMovie",
+    "api": "https://raw.githubusercontent.com/fangkuia/XPTV/main/js/KoreaPornMovie.js"
+  },
+  "csp_miss": {
+    "name": "AV-MissAV",
+    "api": "https://raw.githubusercontent.com/fangkuia/XPTV/main/js/missav.js"
+  },
+  "csp_pornhub": {
+    "name": "AV-Pornhub",
+    "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/pornhub.js"
+  },
+  "csp_ppron": {
+    "name": "AV-PPP.Porn",
+    "api": "https://raw.githubusercontent.com/fangkuia/XPTV/main/js/ppp.js"
+  },
+  "csp_SupJav": {
+    "name": "AV-SupJav",
+    "api": "https://raw.githubusercontent.com/fangkuia/XPTV/main/js/SupJav.js"
+  },
+  "csp_Taiav": {
+    "name": "AV-Taiav",
+    "api": "https://raw.githubusercontent.com/fangkuia/XPTV/main/js/taiav.js"
+  },
+  "csp_twivideo": {
+    "name": "AV-TwiVideo",
+    "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/twivideo.js"
+  },
+  "csp_xhamster": {
+    "name": "AV-xHamster",
+    "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/xhamster.js"
+  },
+  "csp_hdys": {
+    "name": "AV-花都影视",
+    "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/hdys.js"
+  },
+  "csp_madou": {
+    "name": "AV-麻豆社",
+    "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/madou.js"
+  },
+  "csp_rou": {
+    "name": "AV-肉视频",
+    "api": "https://raw.githubusercontent.com/fangkuia/XPTV/main/js/rou.js"
+  },
+  "csp_hkdoll": {
+    "name": "AV-玩偶姐姐",
+    "api": "https://raw.githubusercontent.com/Yswag/xptv-extensions/main/js/hkdoll.js"
+  },
+  "csp_uaa": {
+    "name": "AV-有爱爱",
+    "api": "https://raw.githubusercontent.com/fangkuia/XPTV/main/js/uua.js"
+  },
+  "csp_pandatv": {
+    "name": "AV-PandaTV(Live)",
+    "api": "https://raw.githubusercontent.com/fangkuia/XPTV/main/js/pandatv.js"
+  },
+  "csp_harunasan": {
+    "name": "AV-秋名山见(Live)",
+    "api": "https://gist.githubusercontent.com/Yswag/d9f072b75dab5b1b107c523dd148eea3/raw/harunasan.js"
+  }
+  }
+}
 
