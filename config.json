@@ -1,5 +1,5 @@
 {
-  "cache_time": 7200,
+  "cache_time": 9200,
   "api_site": {
  "dyttzy": {
          "api": "http://caiji.dyttzyapi.com/api.php/provide/vod",
@@ -123,11 +123,6 @@
       "api": "https://apiyutu.com/api.php/provide/vod",
       "name": "AV-玉兔资源",
       "detail": "https://apiyutu.com"
-    },
-      "AV18": {
-      "api": "http://www.jializyzapi.com/api.php/provide/vod",
-      "name": "AV-佳丽资源",
-      "detail": "http://www.jializyzapi.com"
     },
       "AV19": {
       "api": "https://www.pgxdy.com/api/json.php",
