@@ -158,7 +158,17 @@
       "api": "https://www.caoliuzyw.com/api.php/prodao/vod",
       "name": "AV-草榴资源",
       "detail": "https://www.caoliuzyw.com"
-    }
+    },
+	"lzi": {
+      "api": "https://cj.lziapi.com/api.php/provide/vod",
+      "name": "量子",
+      "detail": "https://cj.lziapi.com"
+    },
+	"pingguo": {
+      "api": "https://ikunzyapi.com/api.php/provide/vod",
+      "name": "苹果",
+      "detail": "https://ikunzyapi.com"
+    }  
   }
 }
 
