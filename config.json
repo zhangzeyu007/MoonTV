@@ -168,6 +168,16 @@
       "api": "https://ikunzyapi.com/api.php/provide/vod",
       "name": "苹果",
       "detail": "https://ikunzyapi.com"
+    }，
+	  "kuaiche": {
+      "api": "https://caiji.kuaichezy.org/api.php/provide/vod",
+      "name": "快车",
+      "detail": "https://caiji.kuaichezy.org"
+    }，
+	 "ckzy": {
+      "api": "https://ckzy.me/api.php/provide/vod",
+      "name": "CK",
+      "detail": "https://ckzy.me"
     }  
   }
 }
