@@ -154,11 +154,6 @@
     "name": "AV-乐播资源",
     "detail": "https://lbapi9.com"
 	},
-     "AV1": {
-      "api": "https://www.caoliuzyw.com/api.php/prodao/vod",
-      "name": "AV-草榴资源",
-      "detail": "https://www.caoliuzyw.com"
-    },
 	"lzi": {
       "api": "https://cj.lziapi.com/api.php/provide/vod",
       "name": "量子",
