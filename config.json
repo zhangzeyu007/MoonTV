@@ -6,15 +6,23 @@
          "name": "电影天堂资源",
          "detail": "http://caiji.dyttzyapi.com"
        },
-       "ruyi": {
+  "ruyi": {
          "api": "https://cj.rycjapi.com/api.php/provide/vod",
          "name": "如意资源"
        },
-       "bfzy": {
+  "niuniu": {
+         "api": "https://api.niuniuzy.me/api.php/provide/vod",
+         "name": "牛牛资源"
+       },
+  "douban": {
+         "api": "https://caiji.dbzy5.com/api.php/provide/vod",
+         "name": "豆瓣资源"
+       },	  
+   "bfzy": {
          "api": "https://bfzyapi.com/api.php/provide/vod",
          "name": "暴风资源"
        },
-       "tyyszy": {
+    "tyyszy": {
          "api": "https://tyyszy.com/api.php/provide/vod",
          "name": "天涯资源"
        },
@@ -99,10 +107,23 @@
       "name": "AV-奶香香",
       "detail": "https://Naixxzy.com"
     },
+	  "AV12": {
+      "api": "https://api.xiaojizy.live/provide/vod",
+      "name": "小鸡资源",
+      "detail": "https://apiyutu.com"
+    },
 	"AV17": {
       "api": "https://apiyutu.com/api.php/provide/vod",
       "name": "AV-玉兔资源",
       "detail": "https://apiyutu.com"
+    },
+	"AV18": {
+      "api": "https://thzy1.me/api.php/provide/vod",
+      "name": "桃花资源"
+    },
+    "AV19": {
+      "api": "https://91jpzyw.com/api.php/provide/vod",
+      "name": "91资源"
     },
     "AV20": {
       "api": "https://www.gdlsp.com/api/json.php",
@@ -110,9 +131,9 @@
       "detail": "https://www.gdlsp.com"
     },
 	"AV21": {
-      "api": "https://www.pgxdy.com/api/json.php",
-      "name": "黄AV资源",
-      "detail": "https://www.pgxdy.com"
+      "api": "https://www.kxgav.com/api/json.php",
+      "name": "AV-白嫖资源",
+      "detail": "https://www.kxgav.com"
     },
 	"AV23": {
     "api": "https://www.xrbsp.com/api/json.php",
