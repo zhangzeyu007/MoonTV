@@ -104,12 +104,7 @@
       "name": "AV-玉兔资源",
       "detail": "https://apiyutu.com"
     },
-      "AV19": {
-      "api": "https://www.pgxdy.com/api/json.php",
-      "name": "AV-AV资源",
-      "detail": "https://www.pgxdy.com"
-    },
-      "AV20": {
+    "AV20": {
       "api": "https://www.gdlsp.com/api/json.php",
       "name": "AV-香奶儿资源",
       "detail": "https://www.gdlsp.com"
