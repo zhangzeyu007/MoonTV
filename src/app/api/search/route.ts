@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { getAvailableApiSites, getCacheTime } from '@/lib/config';
+import { ApiSite, getAvailableApiSites, getCacheTime } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
 
 export const runtime = 'edge';
@@ -8,6 +8,7 @@ export const runtime = 'edge';
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q');
+  const resourcesParam = searchParams.get('resources');
 
   if (!query) {
     const cacheTime = await getCacheTime();
@@ -21,7 +22,17 @@ export async function GET(request: Request) {
     );
   }
 
-  const apiSites = await getAvailableApiSites();
+  let apiSites: ApiSite[];
+
+  // 如果指定了资源，使用指定的资源；否则使用所有可用的资源
+  if (resourcesParam) {
+    const selectedResources = resourcesParam.split(',');
+    const allSites = await getAvailableApiSites();
+    apiSites = allSites.filter((site) => selectedResources.includes(site.key));
+  } else {
+    apiSites = await getAvailableApiSites();
+  }
+
   const searchPromises = apiSites.map((site) => searchFromApi(site, query));
 
   try {

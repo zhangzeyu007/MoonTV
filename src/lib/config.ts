@@ -361,3 +361,13 @@ export async function getAvailableApiSites(): Promise<ApiSite[]> {
     detail: s.detail,
   }));
 }
+
+export async function getAllApiSites(): Promise<ApiSite[]> {
+  const config = await getConfig();
+  return config.SourceConfig.map((s) => ({
+    key: s.key,
+    name: s.name,
+    api: s.api,
+    detail: s.detail,
+  }));
+}

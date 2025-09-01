@@ -2,7 +2,7 @@
 
 'use client';
 
-import { Settings, X } from 'lucide-react';
+import { Search, Settings, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -14,6 +14,11 @@ export const SettingsButton: React.FC = () => {
   const [enableOptimization, setEnableOptimization] = useState(true);
   const [enableImageProxy, setEnableImageProxy] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [selectedResources, setSelectedResources] = useState<string[]>([]);
+  const [resourceSearchQuery, setResourceSearchQuery] = useState('');
+  const [allResources, setAllResources] = useState<
+    Array<{ key: string; name: string }>
+  >([]);
 
   // 确保组件已挂载
   useEffect(() => {
@@ -57,7 +62,78 @@ export const SettingsButton: React.FC = () => {
       if (savedEnableOptimization !== null) {
         setEnableOptimization(JSON.parse(savedEnableOptimization));
       }
+
+      // 读取指定资源选择
+      const savedSelectedResources = localStorage.getItem('selectedResources');
+      if (savedSelectedResources !== null) {
+        setSelectedResources(JSON.parse(savedSelectedResources));
+      }
+
+      // 加载所有资源列表 - 使用默认配置
+      const defaultResources = [
+        { key: 'dyttzy', name: '电影天堂资源' },
+        { key: 'ruyi', name: '如意资源' },
+        { key: 'niuniu', name: '牛牛资源' },
+        { key: 'douban', name: '豆瓣资源' },
+        { key: 'bfzy', name: '暴风资源' },
+        { key: 'tyyszy', name: '天涯资源' },
+        { key: 'ffyzy', name: '非凡云' },
+        { key: 'iqiyi', name: 'iqiyi资源' },
+        { key: 'wolong', name: '卧龙资源' },
+        { key: 'wolong2', name: '卧龙资源2' },
+        { key: 'jisu', name: '极速资源' },
+        { key: 'mozhua', name: '魔爪资源' },
+        { key: 'yinghua', name: '樱花资源' },
+        { key: 'wujin', name: '无尽资源' },
+        { key: 'wwzy', name: '旺旺短剧' },
+        { key: 'ikun', name: 'iKun资源' },
+        { key: 'lzi', name: '量子资源站' },
+        { key: 'huya', name: '虎牙资源' },
+        { key: 'ckzy', name: 'CK资源' },
+        { key: 'wujinzy', name: '无尽资源2' },
+        { key: 'hongniuzy', name: '红牛资源' },
+        { key: 'AV6', name: 'AV-AIvin' },
+        { key: 'AV8', name: 'AV-番号资源' },
+        { key: 'AV11', name: 'AV-奶香香' },
+        { key: 'AV12', name: '小鸡资源' },
+        { key: 'AV17', name: 'AV-玉兔资源' },
+        { key: 'AV18', name: '桃花资源' },
+        { key: 'AV19', name: '91资源' },
+        { key: 'AV20', name: 'AV-香奶儿资源' },
+        { key: 'AV21', name: 'AV-白嫖资源' },
+        { key: 'AV23', name: 'AV-淫水资源' },
+        { key: 'AV24', name: 'AV-美少女资源' },
+        { key: 'AV25', name: 'AV-乐播资源' },
+        { key: 'pingguo', name: '苹果' },
+        { key: 'kuaiche', name: '快车' },
+      ];
+      setAllResources(defaultResources);
     }
+  }, []);
+
+  // 监听 localStorage 变化，实现与搜索页面的双向同步
+  useEffect(() => {
+    const handleLocalStorageChange = (e: CustomEvent) => {
+      if (e.detail?.key === 'defaultAggregateSearch') {
+        setDefaultAggregateSearch(e.detail.value);
+      }
+
+      if (e.detail?.key === 'selectedResources') {
+        setSelectedResources(e.detail.value || []);
+      }
+    };
+
+    window.addEventListener(
+      'localStorageChange',
+      handleLocalStorageChange as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        'localStorageChange',
+        handleLocalStorageChange as EventListener
+      );
+    };
   }, []);
 
   // 保存设置到 localStorage
@@ -65,6 +141,12 @@ export const SettingsButton: React.FC = () => {
     setDefaultAggregateSearch(value);
     if (typeof window !== 'undefined') {
       localStorage.setItem('defaultAggregateSearch', JSON.stringify(value));
+      // 触发自定义事件，通知同标签页内的其他组件
+      window.dispatchEvent(
+        new CustomEvent('localStorageChange', {
+          detail: { key: 'defaultAggregateSearch', value },
+        })
+      );
     }
   };
 
@@ -96,6 +178,53 @@ export const SettingsButton: React.FC = () => {
     }
   };
 
+  const handleResourceToggle = (resourceKey: string) => {
+    const newSelectedResources = selectedResources.includes(resourceKey)
+      ? selectedResources.filter((key) => key !== resourceKey)
+      : [...selectedResources, resourceKey];
+
+    setSelectedResources(newSelectedResources);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(
+        'selectedResources',
+        JSON.stringify(newSelectedResources)
+      );
+      // 触发自定义事件，通知同标签页内的其他组件
+      window.dispatchEvent(
+        new CustomEvent('localStorageChange', {
+          detail: { key: 'selectedResources', value: newSelectedResources },
+        })
+      );
+    }
+  };
+
+  const handleSelectAllResources = () => {
+    const allKeys = allResources.map((r) => r.key);
+    setSelectedResources(allKeys);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('selectedResources', JSON.stringify(allKeys));
+      // 触发自定义事件，通知同标签页内的其他组件
+      window.dispatchEvent(
+        new CustomEvent('localStorageChange', {
+          detail: { key: 'selectedResources', value: allKeys },
+        })
+      );
+    }
+  };
+
+  const handleClearAllResources = () => {
+    setSelectedResources([]);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('selectedResources', JSON.stringify([]));
+      // 触发自定义事件，通知同标签页内的其他组件
+      window.dispatchEvent(
+        new CustomEvent('localStorageChange', {
+          detail: { key: 'selectedResources', value: [] },
+        })
+      );
+    }
+  };
+
   const handleSettingsClick = () => {
     setIsOpen(!isOpen);
   };
@@ -114,6 +243,8 @@ export const SettingsButton: React.FC = () => {
     setDoubanProxyUrl('');
     setEnableImageProxy(!!defaultImageProxy);
     setImageProxyUrl(defaultImageProxy);
+    setSelectedResources([]);
+    setResourceSearchQuery('');
 
     // 保存到 localStorage
     if (typeof window !== 'undefined') {
@@ -125,6 +256,7 @@ export const SettingsButton: React.FC = () => {
         JSON.stringify(!!defaultImageProxy)
       );
       localStorage.setItem('imageProxyUrl', defaultImageProxy);
+      localStorage.setItem('selectedResources', JSON.stringify([]));
     }
   };
 
@@ -186,6 +318,99 @@ export const SettingsButton: React.FC = () => {
                 <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
               </div>
             </label>
+          </div>
+
+          {/* 指定资源搜索设置 */}
+          <div
+            className={`space-y-3 ${
+              defaultAggregateSearch ? 'opacity-50 pointer-events-none' : ''
+            }`}
+          >
+            <div>
+              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                指定资源搜索
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                关闭聚合搜索后可选择特定资源进行搜索
+              </p>
+            </div>
+
+            {/* 资源搜索框 */}
+            <div className='relative'>
+              <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500' />
+              <input
+                type='text'
+                className='w-full px-3 py-2 pl-10 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent'
+                placeholder='搜索资源名称...'
+                value={resourceSearchQuery}
+                onChange={(e) => setResourceSearchQuery(e.target.value)}
+              />
+            </div>
+
+            {/* 全选/清空按钮 */}
+            <div className='flex gap-2'>
+              <button
+                onClick={handleSelectAllResources}
+                className='px-3 py-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 border border-blue-200 hover:border-blue-300 dark:border-blue-800 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors'
+              >
+                全选
+              </button>
+              <button
+                onClick={handleClearAllResources}
+                className='px-3 py-1 text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 border border-red-200 hover:border-red-300 dark:border-red-800 dark:hover:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors'
+              >
+                清空
+              </button>
+            </div>
+
+            {/* 资源列表 */}
+            <div className='max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2'>
+              {allResources
+                .filter(
+                  (resource) =>
+                    resource.name
+                      .toLowerCase()
+                      .includes(resourceSearchQuery.toLowerCase()) ||
+                    resource.key
+                      .toLowerCase()
+                      .includes(resourceSearchQuery.toLowerCase())
+                )
+                .map((resource) => (
+                  <label
+                    key={resource.key}
+                    className='flex items-center gap-2 p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded cursor-pointer'
+                  >
+                    <input
+                      type='checkbox'
+                      checked={selectedResources.includes(resource.key)}
+                      onChange={() => handleResourceToggle(resource.key)}
+                      className='w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600'
+                    />
+                    <span className='text-sm text-gray-700 dark:text-gray-300'>
+                      {resource.name}
+                    </span>
+                  </label>
+                ))}
+              {allResources.filter(
+                (resource) =>
+                  resource.name
+                    .toLowerCase()
+                    .includes(resourceSearchQuery.toLowerCase()) ||
+                  resource.key
+                    .toLowerCase()
+                    .includes(resourceSearchQuery.toLowerCase())
+              ).length === 0 && (
+                <div className='text-center text-gray-500 dark:text-gray-400 py-4 text-sm'>
+                  未找到匹配的资源
+                </div>
+              )}
+            </div>
+
+            {selectedResources.length > 0 && (
+              <div className='text-xs text-gray-500 dark:text-gray-400'>
+                已选择 {selectedResources.length} 个资源
+              </div>
+            )}
           </div>
 
           {/* 优选和测速 */}
