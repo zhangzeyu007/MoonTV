@@ -3,7 +3,14 @@
 
 import { Search, X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   addSearchHistory,
@@ -28,8 +35,13 @@ function SearchPageClient() {
   const [showResults, setShowResults] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
 
+  // 使用ref存储最新的搜索参数，避免闭包问题
+  const searchQueryRef = useRef(searchQuery);
+  const viewModeRef = useRef<'agg' | 'all'>('agg');
+  const selectedResourcesRef = useRef<string[]>([]);
+
   // 获取默认聚合设置：只读取用户本地设置，默认为 true
-  const getDefaultAggregate = () => {
+  const getDefaultAggregate = useCallback(() => {
     if (typeof window !== 'undefined') {
       const userSetting = localStorage.getItem('defaultAggregateSearch');
       if (userSetting !== null) {
@@ -37,12 +49,19 @@ function SearchPageClient() {
       }
     }
     return true; // 默认启用聚合
-  };
+  }, []);
 
   const [viewMode, setViewMode] = useState<'agg' | 'all'>(() => {
     return getDefaultAggregate() ? 'agg' : 'all';
   });
   const [selectedResources, setSelectedResources] = useState<string[]>([]);
+
+  // 更新ref值
+  useEffect(() => {
+    searchQueryRef.current = searchQuery;
+    viewModeRef.current = viewMode;
+    selectedResourcesRef.current = selectedResources;
+  }, [searchQuery, viewMode, selectedResources]);
 
   // 聚合后的结果（按标题和年份分组）
   const aggregatedResults = useMemo(() => {
@@ -88,7 +107,154 @@ function SearchPageClient() {
         }
       }
     });
-  }, [searchResults]);
+  }, [searchResults, searchQuery]);
+
+  // 优化的搜索函数
+  const fetchSearchResults = useCallback(async (query: string) => {
+    try {
+      setIsLoading(true);
+
+      // 构建搜索URL
+      const urlParams = new URLSearchParams();
+      urlParams.append('q', query.trim());
+
+      // 如果不是聚合模式且有选择的资源，添加资源参数
+      if (
+        viewModeRef.current === 'all' &&
+        selectedResourcesRef.current.length > 0
+      ) {
+        urlParams.append('resources', selectedResourcesRef.current.join(','));
+      }
+
+      const response = await fetch(`/api/search?${urlParams.toString()}`);
+      if (!response.ok) {
+        throw new Error(`搜索请求失败: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setSearchResults(
+        data.results.sort((a: SearchResult, b: SearchResult) => {
+          // 优先排序：标题与搜索词完全一致的排在前面
+          const aExactMatch = a.title === query.trim();
+          const bExactMatch = b.title === query.trim();
+
+          if (aExactMatch && !bExactMatch) return -1;
+          if (!aExactMatch && bExactMatch) return 1;
+
+          // 如果都匹配或都不匹配，则按原来的逻辑排序
+          if (a.year === b.year) {
+            return a.title.localeCompare(b.title);
+          } else {
+            // 处理 unknown 的情况
+            if (a.year === 'unknown' && b.year === 'unknown') {
+              return 0;
+            } else if (a.year === 'unknown') {
+              return 1; // a 排在后面
+            } else if (b.year === 'unknown') {
+              return -1; // b 排在后面
+            } else {
+              // 都是数字年份，按数字大小排序（大的在前面）
+              return parseInt(a.year) > parseInt(b.year) ? -1 : 1;
+            }
+          }
+        })
+      );
+      setShowResults(true);
+    } catch (error) {
+      // 静默处理搜索错误，避免影响用户体验
+      setSearchResults([]);
+      setShowResults(false);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // 优化的重新搜索函数
+  const refreshSearchResults = useCallback(() => {
+    const currentQuery = searchQueryRef.current.trim();
+    if (currentQuery) {
+      setSearchResults([]);
+      setShowResults(false);
+      // 使用queueMicrotask确保状态更新完成后再执行搜索
+      queueMicrotask(() => {
+        fetchSearchResults(currentQuery);
+      });
+    }
+  }, [fetchSearchResults]);
+
+  // 优化的搜索处理函数
+  const handleSearch = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      const trimmed = searchQuery.trim().replace(/\s+/g, ' ');
+      if (!trimmed) return;
+
+      // 回显搜索框
+      setSearchQuery(trimmed);
+      setIsLoading(true);
+      setShowResults(true);
+
+      router.push(`/search?q=${encodeURIComponent(trimmed)}`);
+      // 直接发请求
+      fetchSearchResults(trimmed);
+
+      // 保存到搜索历史 (事件监听会自动更新界面)
+      addSearchHistory(trimmed);
+    },
+    [searchQuery, router, fetchSearchResults, addSearchHistory]
+  );
+
+  // 优化的聚合模式切换处理
+  const handleViewModeToggle = useCallback(() => {
+    const newViewMode = viewMode === 'agg' ? 'all' : 'agg';
+    setViewMode(newViewMode);
+
+    // 同步更新 localStorage 设置
+    if (typeof window !== 'undefined') {
+      const newAggregateSetting = newViewMode === 'agg';
+      localStorage.setItem(
+        'defaultAggregateSearch',
+        JSON.stringify(newAggregateSetting)
+      );
+
+      // 触发自定义事件，通知其他组件（如设置页面）
+      window.dispatchEvent(
+        new CustomEvent('localStorageChange', {
+          detail: {
+            key: 'defaultAggregateSearch',
+            value: newAggregateSetting,
+          },
+        })
+      );
+    }
+
+    // 清除当前搜索结果，重新搜索以应用新的模式
+    refreshSearchResults();
+  }, [viewMode, refreshSearchResults]);
+
+  // 优化的搜索历史点击处理
+  const handleHistoryClick = useCallback(
+    (item: string) => {
+      setSearchQuery(item);
+      router.push(`/search?q=${encodeURIComponent(item.trim())}`);
+    },
+    [router]
+  );
+
+  // 优化的搜索历史删除处理
+  const handleHistoryDelete = useCallback(
+    (item: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      deleteSearchHistory(item); // 事件监听会自动更新界面
+    },
+    []
+  );
+
+  // 优化的清空搜索历史处理
+  const handleClearHistory = useCallback(() => {
+    clearSearchHistory(); // 事件监听会自动更新界面
+  }, []);
 
   useEffect(() => {
     // 无搜索参数时聚焦搜索框
@@ -125,12 +291,8 @@ function SearchPageClient() {
         setViewMode(newViewMode);
 
         // 如果有搜索查询，重新搜索以应用新设置
-        if (searchQuery.trim()) {
-          setSearchResults([]);
-          setShowResults(false);
-          setTimeout(() => {
-            fetchSearchResults(searchQuery.trim());
-          }, 100);
+        if (searchQueryRef.current.trim()) {
+          refreshSearchResults();
         }
       }
 
@@ -139,12 +301,8 @@ function SearchPageClient() {
         setSelectedResources(newResources);
 
         // 如果当前是指定搜索模式且有搜索查询，重新搜索
-        if (viewMode === 'all' && searchQuery.trim()) {
-          setSearchResults([]);
-          setShowResults(false);
-          setTimeout(() => {
-            fetchSearchResults(searchQuery.trim());
-          }, 100);
+        if (viewModeRef.current === 'all' && searchQueryRef.current.trim()) {
+          refreshSearchResults();
         }
       }
     };
@@ -159,12 +317,8 @@ function SearchPageClient() {
         const newViewMode = newValue ? 'agg' : 'all';
         setViewMode(newViewMode);
 
-        if (searchQuery.trim()) {
-          setSearchResults([]);
-          setShowResults(false);
-          setTimeout(() => {
-            fetchSearchResults(searchQuery.trim());
-          }, 100);
+        if (searchQueryRef.current.trim()) {
+          refreshSearchResults();
         }
       }
 
@@ -172,12 +326,8 @@ function SearchPageClient() {
         const newResources = e.detail.value || [];
         setSelectedResources(newResources);
 
-        if (viewMode === 'all' && searchQuery.trim()) {
-          setSearchResults([]);
-          setShowResults(false);
-          setTimeout(() => {
-            fetchSearchResults(searchQuery.trim());
-          }, 100);
+        if (viewModeRef.current === 'all' && searchQueryRef.current.trim()) {
+          refreshSearchResults();
         }
       }
     };
@@ -194,7 +344,7 @@ function SearchPageClient() {
         handleLocalStorageChange as EventListener
       );
     };
-  }, [searchQuery, viewMode]);
+  }, [refreshSearchResults]);
 
   useEffect(() => {
     // 当搜索参数变化时更新搜索状态
@@ -204,9 +354,10 @@ function SearchPageClient() {
       // 清除之前的结果，重新搜索
       setSearchResults([]);
       setShowResults(false);
-      setTimeout(() => {
+      // 使用queueMicrotask确保状态更新完成后再执行搜索
+      queueMicrotask(() => {
         fetchSearchResults(query);
-      }, 100);
+      });
 
       // 保存到搜索历史 (事件监听会自动更新界面)
       addSearchHistory(query);
@@ -214,75 +365,7 @@ function SearchPageClient() {
       setShowResults(false);
       setSearchResults([]);
     }
-  }, [searchParams]);
-
-  const fetchSearchResults = async (query: string) => {
-    try {
-      setIsLoading(true);
-
-      // 构建搜索URL
-      const urlParams = new URLSearchParams();
-      urlParams.append('q', query.trim());
-
-      // 如果不是聚合模式且有选择的资源，添加资源参数
-      if (viewMode === 'all' && selectedResources.length > 0) {
-        urlParams.append('resources', selectedResources.join(','));
-      }
-
-      const response = await fetch(`/api/search?${urlParams.toString()}`);
-      const data = await response.json();
-      setSearchResults(
-        data.results.sort((a: SearchResult, b: SearchResult) => {
-          // 优先排序：标题与搜索词完全一致的排在前面
-          const aExactMatch = a.title === query.trim();
-          const bExactMatch = b.title === query.trim();
-
-          if (aExactMatch && !bExactMatch) return -1;
-          if (!aExactMatch && bExactMatch) return 1;
-
-          // 如果都匹配或都不匹配，则按原来的逻辑排序
-          if (a.year === b.year) {
-            return a.title.localeCompare(b.title);
-          } else {
-            // 处理 unknown 的情况
-            if (a.year === 'unknown' && b.year === 'unknown') {
-              return 0;
-            } else if (a.year === 'unknown') {
-              return 1; // a 排在后面
-            } else if (b.year === 'unknown') {
-              return -1; // b 排在后面
-            } else {
-              // 都是数字年份，按数字大小排序（大的在前面）
-              return parseInt(a.year) > parseInt(b.year) ? -1 : 1;
-            }
-          }
-        })
-      );
-      setShowResults(true);
-    } catch (error) {
-      setSearchResults([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = searchQuery.trim().replace(/\s+/g, ' ');
-    if (!trimmed) return;
-
-    // 回显搜索框
-    setSearchQuery(trimmed);
-    setIsLoading(true);
-    setShowResults(true);
-
-    router.push(`/search?q=${encodeURIComponent(trimmed)}`);
-    // 直接发请求
-    fetchSearchResults(trimmed);
-
-    // 保存到搜索历史 (事件监听会自动更新界面)
-    addSearchHistory(trimmed);
-  };
+  }, [searchParams, fetchSearchResults, addSearchHistory]);
 
   return (
     <PageLayout activePath='/search'>
@@ -338,39 +421,7 @@ function SearchPageClient() {
                         type='checkbox'
                         className='sr-only peer'
                         checked={viewMode === 'agg'}
-                        onChange={() => {
-                          const newViewMode =
-                            viewMode === 'agg' ? 'all' : 'agg';
-                          setViewMode(newViewMode);
-
-                          // 同步更新 localStorage 设置
-                          if (typeof window !== 'undefined') {
-                            const newAggregateSetting = newViewMode === 'agg';
-                            localStorage.setItem(
-                              'defaultAggregateSearch',
-                              JSON.stringify(newAggregateSetting)
-                            );
-
-                            // 触发自定义事件，通知其他组件（如设置页面）
-                            window.dispatchEvent(
-                              new CustomEvent('localStorageChange', {
-                                detail: {
-                                  key: 'defaultAggregateSearch',
-                                  value: newAggregateSetting,
-                                },
-                              })
-                            );
-                          }
-
-                          // 清除当前搜索结果，重新搜索以应用新的模式
-                          setSearchResults([]);
-                          setShowResults(false);
-                          if (searchQuery.trim()) {
-                            setTimeout(() => {
-                              fetchSearchResults(searchQuery.trim());
-                            }, 100);
-                          }
-                        }}
+                        onChange={handleViewModeToggle}
                       />
                       <div className='w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
                       <div className='absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4'></div>
@@ -436,9 +487,7 @@ function SearchPageClient() {
                 搜索历史
                 {searchHistory.length > 0 && (
                   <button
-                    onClick={() => {
-                      clearSearchHistory(); // 事件监听会自动更新界面
-                    }}
+                    onClick={handleClearHistory}
                     className='ml-3 text-sm text-gray-500 hover:text-red-500 transition-colors dark:text-gray-400 dark:hover:text-red-500'
                   >
                     清空
@@ -449,12 +498,7 @@ function SearchPageClient() {
                 {searchHistory.map((item) => (
                   <div key={item} className='relative group'>
                     <button
-                      onClick={() => {
-                        setSearchQuery(item);
-                        router.push(
-                          `/search?q=${encodeURIComponent(item.trim())}`
-                        );
-                      }}
+                      onClick={() => handleHistoryClick(item)}
                       className='px-4 py-2 bg-gray-500/10 hover:bg-gray-300 rounded-full text-sm text-gray-700 transition-colors duration-200 dark:bg-gray-700/50 dark:hover:bg-gray-600 dark:text-gray-300'
                     >
                       {item}
@@ -462,11 +506,7 @@ function SearchPageClient() {
                     {/* 删除按钮 */}
                     <button
                       aria-label='删除搜索历史'
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        deleteSearchHistory(item); // 事件监听会自动更新界面
-                      }}
+                      onClick={(e) => handleHistoryDelete(item, e)}
                       className='absolute -top-1 -right-1 w-4 h-4 opacity-0 group-hover:opacity-100 bg-gray-400 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] transition-colors'
                     >
                       <X className='w-3 h-3' />
