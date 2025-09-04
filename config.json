@@ -17,7 +17,11 @@
   "douban": {
          "api": "https://caiji.dbzy5.com/api.php/provide/vod",
          "name": "豆瓣资源"
-       },	  
+       },	
+  "maoyan": {
+         "api": "https://api.maoyanapi.top/api.php/provide/vod",
+         "name": "猫眼资源"
+       },	
    "bfzy": {
          "api": "https://bfzyapi.com/api.php/provide/vod",
          "name": "暴风资源"
@@ -97,10 +101,25 @@
       "name": "AV-AIvin",
       "detail": "http://lbapiby.com"
     },
+	"AV7": {
+      "api": "https://api.souavzy.vip/api.php/provide/vod/",
+      "name": "搜av",
+      "detail": "https://api.souavzy.vip"
+    },
 	"AV8": {
       "api": "http://fhapi9.com/api.php/provide/vod",
       "name": "AV-番号资源",
       "detail": "http://fhapi9.com/"
+    },
+	"AV9": {
+      "api": "https://api.douapi.cc/api.php/provide/vod",
+      "name": "豆豆资源",
+      "detail": "https://api.douapi.cc"
+    },
+	  "AV10": {
+      "api": "https://apidanaizi.com/api.php/provide/vod/",
+      "name": "大奶资源",
+      "detail": "https://apidanaizi.com"
     },
 	"AV11": {
       "api": "https://Naixxzy.com/api.php/provide/vod",
