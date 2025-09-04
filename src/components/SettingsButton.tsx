@@ -19,6 +19,8 @@ export const SettingsButton: React.FC = () => {
   const [allResources, setAllResources] = useState<
     Array<{ key: string; name: string }>
   >([]);
+  const [resourcesLoading, setResourcesLoading] = useState(false);
+  const [resourcesError, setResourcesError] = useState<string | null>(null);
 
   // 确保组件已挂载
   useEffect(() => {
@@ -69,45 +71,47 @@ export const SettingsButton: React.FC = () => {
         setSelectedResources(JSON.parse(savedSelectedResources));
       }
 
-      // 加载所有资源列表 - 使用默认配置
-      const defaultResources = [
-        { key: 'dyttzy', name: '电影天堂资源' },
-        { key: 'ruyi', name: '如意资源' },
-        { key: 'niuniu', name: '牛牛资源' },
-        { key: 'douban', name: '豆瓣资源' },
-        { key: 'bfzy', name: '暴风资源' },
-        { key: 'tyyszy', name: '天涯资源' },
-        { key: 'ffyzy', name: '非凡云' },
-        { key: 'iqiyi', name: 'iqiyi资源' },
-        { key: 'wolong', name: '卧龙资源' },
-        { key: 'wolong2', name: '卧龙资源2' },
-        { key: 'jisu', name: '极速资源' },
-        { key: 'mozhua', name: '魔爪资源' },
-        { key: 'yinghua', name: '樱花资源' },
-        { key: 'wujin', name: '无尽资源' },
-        { key: 'wwzy', name: '旺旺短剧' },
-        { key: 'ikun', name: 'iKun资源' },
-        { key: 'lzi', name: '量子资源站' },
-        { key: 'huya', name: '虎牙资源' },
-        { key: 'ckzy', name: 'CK资源' },
-        { key: 'wujinzy', name: '无尽资源2' },
-        { key: 'hongniuzy', name: '红牛资源' },
-        { key: 'AV6', name: 'AV-AIvin' },
-        { key: 'AV8', name: 'AV-番号资源' },
-        { key: 'AV11', name: 'AV-奶香香' },
-        { key: 'AV12', name: '小鸡资源' },
-        { key: 'AV17', name: 'AV-玉兔资源' },
-        { key: 'AV18', name: '桃花资源' },
-        { key: 'AV19', name: '91资源' },
-        { key: 'AV20', name: 'AV-香奶儿资源' },
-        { key: 'AV21', name: 'AV-白嫖资源' },
-        { key: 'AV23', name: 'AV-淫水资源' },
-        { key: 'AV24', name: 'AV-美少女资源' },
-        { key: 'AV25', name: 'AV-乐播资源' },
-        { key: 'pingguo', name: '苹果' },
-        { key: 'kuaiche', name: '快车' },
-      ];
-      setAllResources(defaultResources);
+      // 加载所有资源列表 - 动态从后端获取
+      (async () => {
+        try {
+          setResourcesLoading(true);
+          setResourcesError(null);
+          const resp = await fetch('/api/search/resources', {
+            cache: 'no-store',
+          });
+          if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status}`);
+          }
+          const data = await resp.json();
+          const resources = Array.isArray(data) ? data : [];
+          const mapped = resources.map((r: any) => ({
+            key: r.key,
+            name: r.name,
+          }));
+          setAllResources(mapped);
+          try {
+            sessionStorage.setItem('allResourcesCache', JSON.stringify(mapped));
+          } catch (storageError) {
+            // Ignore storage errors
+          }
+        } catch (e) {
+          setResourcesError('资源列表加载失败');
+          try {
+            const cached = sessionStorage.getItem('allResourcesCache');
+            if (cached) {
+              const parsed = JSON.parse(cached);
+              if (Array.isArray(parsed)) {
+                setAllResources(parsed);
+                setResourcesError(null);
+              }
+            }
+          } catch (cacheError) {
+            // Ignore cache read errors
+          }
+        } finally {
+          setResourcesLoading(false);
+        }
+      })();
     }
   }, []);
 
@@ -365,44 +369,55 @@ export const SettingsButton: React.FC = () => {
 
             {/* 资源列表 */}
             <div className='max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2'>
-              {allResources
-                .filter(
-                  (resource) =>
-                    resource.name
-                      .toLowerCase()
-                      .includes(resourceSearchQuery.toLowerCase()) ||
-                    resource.key
-                      .toLowerCase()
-                      .includes(resourceSearchQuery.toLowerCase())
-                )
-                .map((resource) => (
-                  <label
-                    key={resource.key}
-                    className='flex items-center gap-2 p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded cursor-pointer'
-                  >
-                    <input
-                      type='checkbox'
-                      checked={selectedResources.includes(resource.key)}
-                      onChange={() => handleResourceToggle(resource.key)}
-                      className='w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600'
-                    />
-                    <span className='text-sm text-gray-700 dark:text-gray-300'>
-                      {resource.name}
-                    </span>
-                  </label>
-                ))}
-              {allResources.filter(
-                (resource) =>
-                  resource.name
-                    .toLowerCase()
-                    .includes(resourceSearchQuery.toLowerCase()) ||
-                  resource.key
-                    .toLowerCase()
-                    .includes(resourceSearchQuery.toLowerCase())
-              ).length === 0 && (
+              {resourcesLoading ? (
                 <div className='text-center text-gray-500 dark:text-gray-400 py-4 text-sm'>
-                  未找到匹配的资源
+                  正在加载资源列表...
                 </div>
+              ) : (
+                <>
+                  {allResources
+                    .filter(
+                      (resource) =>
+                        resource.name
+                          .toLowerCase()
+                          .includes(resourceSearchQuery.toLowerCase()) ||
+                        resource.key
+                          .toLowerCase()
+                          .includes(resourceSearchQuery.toLowerCase())
+                    )
+                    .map((resource) => (
+                      <label
+                        key={resource.key}
+                        className='flex items-center gap-2 p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded cursor-pointer'
+                      >
+                        <input
+                          type='checkbox'
+                          checked={selectedResources.includes(resource.key)}
+                          onChange={() => handleResourceToggle(resource.key)}
+                          className='w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600'
+                        />
+                        <span className='text-sm text-gray-700 dark:text-gray-300'>
+                          {resource.name}
+                        </span>
+                      </label>
+                    ))}
+
+                  {allResources.filter(
+                    (resource) =>
+                      resource.name
+                        .toLowerCase()
+                        .includes(resourceSearchQuery.toLowerCase()) ||
+                      resource.key
+                        .toLowerCase()
+                        .includes(resourceSearchQuery.toLowerCase())
+                  ).length === 0 && (
+                    <div className='text-center text-gray-500 dark:text-gray-400 py-4 text-sm'>
+                      {resourcesError
+                        ? '资源列表加载失败，请稍后重试'
+                        : '未找到匹配的资源'}
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
