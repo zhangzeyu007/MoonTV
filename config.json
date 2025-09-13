@@ -10,6 +10,10 @@
          "api": "https://cj.rycjapi.com/api.php/provide/vod",
          "name": "如意资源"
        },
+  "qilin": {
+         "api": "https://cj.rycjapi.com/api.php/provide/vod",
+         "name": "麒麟资源"
+       },
   "niuniu": {
          "api": "https://api.niuniuzy.me/api.php/provide/vod",
          "name": "牛牛资源"
@@ -35,11 +39,11 @@
 	"name": "非凡云",
 	"detail": "http://cj.ffzyapi.com"
 	 },
-       "iqiyi": {
+    "iqiyi": {
        "api": "https://www.iqiyizyapi.com/api.php/provide/vod",
          "name": "iqiyi资源"
        },
-       "wolong": {
+    "wolong": {
          "api": "https://wolongzyw.com/api.php/provide/vod",
          "name": "卧龙资源"
        },
@@ -76,6 +80,21 @@
          "api": "https://cj.lziapi.com/api.php/provide/vod",
          "name": "量子资源站"
        },
+	"pingguo": {
+      "api": "https://ikunzyapi.com/api.php/provide/vod",
+      "name": "苹果",
+      "detail": "https://ikunzyapi.com"
+    },
+	  "kuaiche": {
+      "api": "https://caiji.kuaichezy.org/api.php/provide/vod",
+      "name": "快车",
+      "detail": "https://caiji.kuaichezy.org"
+    },
+	 "ckzy": {
+      "api": "https://ckzy.me/api.php/provide/vod",
+      "name": "CK",
+      "detail": "https://ckzy.me"
+    },
 	"huya": {
 	  "api": "https://www.huyaapi.com/api.php/provide/vod",
 	  "name": "虎牙资源",
@@ -131,6 +150,26 @@
       "name": "小鸡资源",
       "detail": "https://apiyutu.com"
     },
+	"AV13": {
+      "api": "https://siwazyw.tv/api.php/provide/vod",
+      "name": "丝袜资源",
+      "detail": "https://siwazyw.tv"
+    },
+	"AV14": {
+      "api": "https://fqzy.me//api.php/provide/vod",
+      "name": "番茄资源",
+      "detail": "https://fqzy.me"
+    },
+	"AV15": {
+      "api": "https://api.zuiseapi.com/api.php/provide/vod",
+      "name": "最色资源",
+      "detail": "https://api.zuiseapi.com"
+    },
+	  "AV16": {
+      "api": "https://www.yyzywcj.com/api.php/provide/vod",
+      "name": "优优资源",
+      "detail": "https://www.yyzywcj.com"
+    },
 	"AV17": {
       "api": "https://apiyutu.com/api.php/provide/vod",
       "name": "AV-玉兔资源",
@@ -154,6 +193,11 @@
       "name": "AV-白嫖资源",
       "detail": "https://www.kxgav.com"
     },
+   "AV22": {
+      "api": "https://api.ddapi.cc/api.php/provide/vod/",
+      "name": "滴滴资源",
+      "detail": "https://www.kxgav.com"
+    },
 	"AV23": {
     "api": "https://www.xrbsp.com/api/json.php",
     "name": "AV-淫水资源",
@@ -168,27 +212,7 @@
     "api": "https://lbapi9.com/api.php/provide/vod/at/json",
     "name": "AV-乐播资源",
     "detail": "https://lbapi9.com"
-	},
-	"lzi": {
-      "api": "https://cj.lziapi.com/api.php/provide/vod",
-      "name": "量子",
-      "detail": "https://cj.lziapi.com"
-    },
-	"pingguo": {
-      "api": "https://ikunzyapi.com/api.php/provide/vod",
-      "name": "苹果",
-      "detail": "https://ikunzyapi.com"
-    },
-	  "kuaiche": {
-      "api": "https://caiji.kuaichezy.org/api.php/provide/vod",
-      "name": "快车",
-      "detail": "https://caiji.kuaichezy.org"
-    },
-	 "ckzy": {
-      "api": "https://ckzy.me/api.php/provide/vod",
-      "name": "CK",
-      "detail": "https://ckzy.me"
-    }  
+	}
   }
 }
 
