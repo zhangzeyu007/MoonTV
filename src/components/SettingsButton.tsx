@@ -284,6 +284,18 @@ export const SettingsButton: React.FC = () => {
       );
       localStorage.setItem('imageProxyUrl', defaultImageProxy);
       localStorage.setItem('selectedResources', JSON.stringify([]));
+
+      // 触发自定义事件，通知同标签页内的其他组件（如搜索页面）
+      window.dispatchEvent(
+        new CustomEvent('localStorageChange', {
+          detail: { key: 'defaultAggregateSearch', value: true },
+        })
+      );
+      window.dispatchEvent(
+        new CustomEvent('localStorageChange', {
+          detail: { key: 'selectedResources', value: [] },
+        })
+      );
     }
   };
 
