@@ -10,10 +10,6 @@
          "api": "https://cj.rycjapi.com/api.php/provide/vod",
          "name": "如意资源"
        },
-  "qilin": {
-         "api": "https://cj.rycjapi.com/api.php/provide/vod",
-         "name": "麒麟资源"
-       },
   "niuniu": {
          "api": "https://api.niuniuzy.me/api.php/provide/vod",
          "name": "牛牛资源"
@@ -30,7 +26,7 @@
          "api": "https://bfzyapi.com/api.php/provide/vod",
          "name": "暴风资源"
        },
-    "tyyszy": {
+  "tyyszy": {
          "api": "https://tyyszy.com/api.php/provide/vod",
          "name": "天涯资源"
        },
@@ -115,6 +111,11 @@
 	  "name": "红牛资源",
 	  "detail": "https://www.hongniuzy2.com"
 	} ,
+    "AV5": {
+      "api": "https://api.bwzyz.com/api.php/provide/vod",
+      "name": "百万资源",
+      "detail": "https://api.bwzyz.com"
+    },
     "AV6": {
       "api": "http://lbapiby.com/api.php/provide/vod/at/json",
       "name": "AV-AIvin",
@@ -135,7 +136,7 @@
       "name": "豆豆资源",
       "detail": "https://api.douapi.cc"
     },
-	  "AV10": {
+	 "AV10": {
       "api": "https://apidanaizi.com/api.php/provide/vod/",
       "name": "大奶资源",
       "detail": "https://apidanaizi.com"
@@ -145,7 +146,7 @@
       "name": "AV-奶香香",
       "detail": "https://Naixxzy.com"
     },
-	  "AV12": {
+	"AV12": {
       "api": "https://api.xiaojizy.live/provide/vod",
       "name": "小鸡资源",
       "detail": "https://apiyutu.com"
