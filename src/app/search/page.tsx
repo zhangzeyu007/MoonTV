@@ -35,10 +35,18 @@ function SearchPageClient() {
   const [showResults, setShowResults] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
 
+  // 搜索状态持久化相关
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [isNavigatingBack, setIsNavigatingBack] = useState(false);
+  const [hasRestoredState, setHasRestoredState] = useState(false);
+
   // 使用ref存储最新的搜索参数，避免闭包问题
   const searchQueryRef = useRef(searchQuery);
   const viewModeRef = useRef<'agg' | 'all'>('agg');
   const selectedResourcesRef = useRef<string[]>([]);
+
+  // 防抖定时器ref，用于实时搜索
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // 获取默认聚合设置：只读取用户本地设置，默认为 true
   const getDefaultAggregate = useCallback(() => {
@@ -62,6 +70,97 @@ function SearchPageClient() {
     viewModeRef.current = viewMode;
     selectedResourcesRef.current = selectedResources;
   }, [searchQuery, viewMode, selectedResources]);
+
+  // 保存搜索状态到本地存储
+  const saveSearchState = useCallback(() => {
+    if (typeof window === 'undefined') return;
+
+    const searchState = {
+      query: searchQuery,
+      results: searchResults,
+      showResults: showResults,
+      viewMode: viewMode,
+      selectedResources: selectedResources,
+      timestamp: Date.now(),
+    };
+
+    try {
+      localStorage.setItem('searchPageState', JSON.stringify(searchState));
+    } catch (error) {
+      // 静默处理错误
+    }
+  }, [searchQuery, searchResults, showResults, viewMode, selectedResources]);
+
+  // 从本地存储恢复搜索状态
+  const restoreSearchState = useCallback(() => {
+    if (typeof window === 'undefined') return null;
+
+    try {
+      const savedState = localStorage.getItem('searchPageState');
+      if (savedState) {
+        const parsedState = JSON.parse(savedState);
+        // 检查状态是否过期（24小时）
+        const isExpired =
+          Date.now() - parsedState.timestamp > 24 * 60 * 60 * 1000;
+        if (!isExpired) {
+          return parsedState;
+        } else {
+          // 清除过期状态
+          localStorage.removeItem('searchPageState');
+        }
+      }
+    } catch (error) {
+      localStorage.removeItem('searchPageState');
+    }
+    return null;
+  }, []);
+
+  // 检测是否为从详情页返回
+  const detectNavigationBack = useCallback(() => {
+    if (typeof window === 'undefined') return false;
+
+    // 检查是否有保存的搜索状态
+    const savedState = localStorage.getItem('searchPageState');
+    if (!savedState) return false;
+
+    try {
+      const parsedState = JSON.parse(savedState);
+      const timeDiff = Date.now() - parsedState.timestamp;
+      const urlQuery = searchParams.get('q');
+
+      // 如果保存的状态时间戳很近（30分钟内），认为是从详情页返回
+      const isRecentState = timeDiff < 30 * 60 * 1000; // 30分钟内
+
+      // 如果有保存的状态且时间较近，则认为是从详情页返回
+      if (isRecentState) {
+        // 如果URL中有查询参数，检查是否与保存的状态一致
+        if (urlQuery) {
+          return urlQuery === parsedState.query;
+        }
+        // 如果URL中没有查询参数，更可能是从详情页返回
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      return false;
+    }
+  }, [searchParams]);
+
+  // 保存搜索状态到本地存储
+  useEffect(() => {
+    if (isInitialized) {
+      saveSearchState();
+    }
+  }, [
+    searchQuery,
+    searchResults,
+    showResults,
+    viewMode,
+    selectedResources,
+    isInitialized,
+    saveSearchState,
+  ]);
 
   // 聚合后的结果（按标题和年份分组）
   const aggregatedResults = useMemo(() => {
@@ -182,12 +281,52 @@ function SearchPageClient() {
     }
   }, [fetchSearchResults]);
 
+  // 实时搜索函数（带防抖）
+  const handleRealtimeSearch = useCallback(
+    (query: string) => {
+      // 清除之前的防抖定时器
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+
+      // 如果查询为空，立即清除结果
+      if (!query.trim()) {
+        setSearchResults([]);
+        setShowResults(false);
+        return;
+      }
+
+      // 设置防抖定时器，500ms后执行搜索
+      debounceTimeoutRef.current = setTimeout(() => {
+        const trimmedQuery = query.trim();
+        if (trimmedQuery) {
+          // 更新URL参数（不触发页面刷新）
+          const newUrl = `/search?q=${encodeURIComponent(trimmedQuery)}`;
+          window.history.replaceState({}, '', newUrl);
+
+          // 执行搜索
+          fetchSearchResults(trimmedQuery);
+        }
+      }, 500); // 500ms 防抖延迟
+    },
+    [fetchSearchResults]
+  );
+
   // 优化的搜索处理函数
   const handleSearch = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
       const trimmed = searchQuery.trim().replace(/\s+/g, ' ');
       if (!trimmed) return;
+
+      // 清除防抖定时器，立即执行搜索
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+
+      // 清除导航状态和恢复状态标记，表示这是用户主动搜索
+      setIsNavigatingBack(false);
+      setHasRestoredState(false);
 
       // 回显搜索框
       setSearchQuery(trimmed);
@@ -200,8 +339,13 @@ function SearchPageClient() {
 
       // 保存到搜索历史 (事件监听会自动更新界面)
       addSearchHistory(trimmed);
+
+      // 保存当前状态，确保返回时能正确恢复
+      setTimeout(() => {
+        saveSearchState();
+      }, 100);
     },
-    [searchQuery, router, fetchSearchResults, addSearchHistory]
+    [searchQuery, router, fetchSearchResults, addSearchHistory, saveSearchState]
   );
 
   // 优化的聚合模式切换处理
@@ -235,10 +379,18 @@ function SearchPageClient() {
   // 优化的搜索历史点击处理
   const handleHistoryClick = useCallback(
     (item: string) => {
+      // 清除导航状态和恢复状态标记，表示这是用户主动搜索
+      setIsNavigatingBack(false);
+      setHasRestoredState(false);
+
       setSearchQuery(item);
       router.push(`/search?q=${encodeURIComponent(item.trim())}`);
+      // 保存当前状态，确保返回时能正确恢复
+      setTimeout(() => {
+        saveSearchState();
+      }, 100);
     },
-    [router]
+    [router, saveSearchState]
   );
 
   // 优化的搜索历史删除处理
@@ -246,19 +398,121 @@ function SearchPageClient() {
     (item: string, e: React.MouseEvent) => {
       e.stopPropagation();
       e.preventDefault();
+
+      // 立即更新搜索历史状态，确保界面立即更新
+      setSearchHistory((prev) =>
+        prev.filter((historyItem) => historyItem !== item)
+      );
+
       deleteSearchHistory(item); // 事件监听会自动更新界面
     },
     []
   );
 
   // 优化的清空搜索历史处理
-  const handleClearHistory = useCallback(() => {
-    clearSearchHistory(); // 事件监听会自动更新界面
+  const handleClearHistory = useCallback(async () => {
+    // 立即清空搜索历史状态，确保界面立即更新
+    setSearchHistory([]);
+
+    try {
+      await clearSearchHistory(); // 事件监听会自动更新界面
+    } catch (error) {
+      // 静默处理错误
+    }
   }, []);
 
+  // 清空搜索状态
+  const clearSearchState = useCallback(async () => {
+    // 清除导航状态和恢复状态标记，表示这是用户主动操作
+    setIsNavigatingBack(false);
+    setHasRestoredState(false);
+
+    // 立即清空所有搜索相关状态
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowResults(false);
+    setSearchHistory([]);
+
+    // 清除本地存储的搜索状态
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('searchPageState');
+    }
+
+    // 更新URL，移除查询参数
+    router.push('/search');
+
+    // 清空搜索历史记录 - 等待完成
+    try {
+      await clearSearchHistory();
+    } catch (error) {
+      // 静默处理错误
+    }
+
+    // 聚焦搜索框
+    setTimeout(() => {
+      document.getElementById('searchInput')?.focus();
+    }, 100);
+  }, [
+    clearSearchHistory,
+    searchQuery,
+    showResults,
+    searchHistory.length,
+    router,
+  ]);
+
   useEffect(() => {
-    // 无搜索参数时聚焦搜索框
-    !searchParams.get('q') && document.getElementById('searchInput')?.focus();
+    // 初始化搜索状态
+    const initializeSearchState = async () => {
+      const savedState = restoreSearchState();
+      const urlQuery = searchParams.get('q');
+      const isBackNavigation = detectNavigationBack();
+
+      if (isBackNavigation && savedState) {
+        // 从详情页返回，优先恢复保存的状态
+        setSearchQuery(savedState.query || '');
+        setSearchResults(savedState.results || []);
+        setShowResults(savedState.showResults || false);
+        setViewMode(savedState.viewMode || 'agg');
+        setSelectedResources(savedState.selectedResources || []);
+        setIsNavigatingBack(true);
+        setHasRestoredState(true);
+
+        // 如果保存的状态有搜索结果，确保显示结果
+        if (savedState.results && savedState.results.length > 0) {
+          setShowResults(true);
+        }
+      } else if (urlQuery) {
+        // 有URL参数，使用URL参数（用户主动搜索或直接访问）
+        setSearchQuery(urlQuery);
+        // 立即触发搜索
+        queueMicrotask(() => {
+          fetchSearchResults(urlQuery);
+        });
+        // 保存到搜索历史
+        addSearchHistory(urlQuery);
+      } else if (savedState) {
+        // 没有URL参数但有保存状态，恢复保存的状态
+        setSearchQuery(savedState.query || '');
+        setSearchResults(savedState.results || []);
+        setShowResults(savedState.showResults || false);
+        setViewMode(savedState.viewMode || 'agg');
+        setSelectedResources(savedState.selectedResources || []);
+        setHasRestoredState(true);
+
+        // 如果保存的状态有搜索结果，确保显示结果
+        if (savedState.results && savedState.results.length > 0) {
+          setShowResults(true);
+        }
+      } else {
+        // 都没有，聚焦搜索框
+        document.getElementById('searchInput')?.focus();
+      }
+
+      // 标记为已初始化
+      setIsInitialized(true);
+    };
+
+    initializeSearchState();
 
     // 初始加载搜索历史
     getSearchHistory().then(setSearchHistory);
@@ -280,7 +534,7 @@ function SearchPageClient() {
     }
 
     return unsubscribe;
-  }, []);
+  }, [searchParams, restoreSearchState]);
 
   // 监听 localStorage 变化，实现设置实时同步
   useEffect(() => {
@@ -346,10 +600,70 @@ function SearchPageClient() {
     };
   }, [refreshSearchResults]);
 
+  // 清理防抖定时器
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // 监听页面可见性变化，确保从详情页返回时能正确恢复状态
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        isInitialized &&
+        !hasRestoredState
+      ) {
+        // 页面重新可见且已初始化但未恢复状态，尝试恢复
+        const savedState = restoreSearchState();
+        if (savedState && savedState.query) {
+          setSearchQuery(savedState.query);
+          setSearchResults(savedState.results || []);
+          setShowResults(savedState.showResults || false);
+          setViewMode(savedState.viewMode || 'agg');
+          setSelectedResources(savedState.selectedResources || []);
+          setHasRestoredState(true);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isInitialized, hasRestoredState, restoreSearchState]);
+
   useEffect(() => {
     // 当搜索参数变化时更新搜索状态
     const query = searchParams.get('q');
-    if (query) {
+
+    // 检查是否是从详情页返回
+    const isBackFromDetail = detectNavigationBack();
+
+    // 只有在以下情况才更新搜索框值：
+    // 1. 从详情页返回且URL参数与当前搜索词不同
+    // 2. 用户主动导航到带查询参数的URL（如直接访问/search?q=xxx）
+    // 3. 应用初始化时有URL查询参数
+    const shouldUpdateSearchBox =
+      (isBackFromDetail && query !== searchQuery) || // 从详情页返回
+      (!isInitialized && query) || // 初始化时有查询参数
+      (isInitialized &&
+        !isNavigatingBack &&
+        !hasRestoredState &&
+        query !== searchQuery); // 主动导航到搜索页且查询不同
+
+    if (
+      query &&
+      isInitialized &&
+      !isNavigatingBack &&
+      !hasRestoredState &&
+      !isBackFromDetail &&
+      shouldUpdateSearchBox
+    ) {
+      // 只有当需要更新搜索框时才设置搜索框的值
       setSearchQuery(query);
       // 清除之前的结果，重新搜索
       setSearchResults([]);
@@ -361,29 +675,122 @@ function SearchPageClient() {
 
       // 保存到搜索历史 (事件监听会自动更新界面)
       addSearchHistory(query);
-    } else {
-      setShowResults(false);
-      setSearchResults([]);
+    } else if (!query && isInitialized && !isNavigatingBack) {
+      // 当没有URL参数且不是从详情页返回时，检查是否需要清空搜索状态
+      // 如果当前有搜索内容但没有URL参数，说明用户可能进行了清除操作
+      // 但是要避免在用户正在输入时干扰
+      if (searchQuery && !hasRestoredState && showResults) {
+        setSearchQuery('');
+        setSearchResults([]);
+        setShowResults(false);
+      }
     }
-  }, [searchParams, fetchSearchResults, addSearchHistory]);
+
+    // 延迟重置导航状态，确保状态恢复完成
+    if (isNavigatingBack) {
+      setTimeout(() => {
+        setIsNavigatingBack(false);
+      }, 100);
+    }
+  }, [
+    searchParams,
+    fetchSearchResults,
+    addSearchHistory,
+    isInitialized,
+    isNavigatingBack,
+    detectNavigationBack,
+    hasRestoredState,
+  ]);
+
+  // 处理搜索框清空时的逻辑
+  useEffect(() => {
+    // 只有在以下条件都满足时才清除搜索结果：
+    // 1. 搜索框为空
+    // 2. 当前显示搜索结果
+    // 3. 不是从详情页返回的状态
+    // 4. 已经初始化完成
+    if (
+      searchQuery === '' &&
+      showResults &&
+      !isNavigatingBack &&
+      isInitialized &&
+      !hasRestoredState
+    ) {
+      setSearchResults([]);
+      setShowResults(false);
+      setSearchHistory([]);
+      // 清除本地存储的搜索状态
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('searchPageState');
+      }
+      // 清空搜索历史记录
+      clearSearchHistory().catch(() => {
+        // 静默处理错误
+      });
+    }
+  }, [
+    searchQuery,
+    showResults,
+    isNavigatingBack,
+    isInitialized,
+    hasRestoredState,
+  ]);
 
   return (
     <PageLayout activePath='/search'>
       <div className='px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-10'>
         {/* 搜索框 */}
         <div className='mb-8'>
-          <form onSubmit={handleSearch} className='max-w-2xl mx-auto'>
-            <div className='relative'>
-              <Search className='absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400 dark:text-gray-500' />
+          <form onSubmit={handleSearch} className='max-w-3xl mx-auto'>
+            <div className='relative group'>
+              {/* 搜索图标 */}
+              <div className='absolute left-4 top-1/2 -translate-y-1/2 z-10'>
+                <Search className='h-5 w-5 text-gray-400 dark:text-gray-500 transition-colors group-focus-within:text-green-500' />
+              </div>
+
+              {/* 输入框 */}
               <input
                 id='searchInput'
                 type='text'
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  const newValue = e.target.value;
+                  setSearchQuery(newValue);
+
+                  // 触发实时搜索
+                  handleRealtimeSearch(newValue);
+                }}
+                onKeyDown={(_e) => {
+                  // 处理键盘事件
+                }}
                 placeholder='搜索电影、电视剧...'
-                className='w-full h-12 rounded-lg bg-gray-50/80 py-3 pl-10 pr-4 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:bg-white border border-gray-200/50 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:placeholder-gray-500 dark:focus:bg-gray-700 dark:border-gray-700'
+                className='w-full h-14 pl-12 pr-14 text-base bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border-2 border-gray-200/60 dark:border-gray-700/60 rounded-2xl shadow-lg hover:shadow-xl focus:outline-none focus:ring-0 focus:border-green-400 dark:focus:border-green-500 focus:bg-white dark:focus:bg-gray-800 transition-all duration-300 ease-in-out text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400'
               />
+
+              {/* 清空按钮 */}
+              {searchQuery && (
+                <button
+                  type='button'
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    clearSearchState();
+                  }}
+                  className='absolute right-4 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center transition-all duration-200 ease-in-out group/clear'
+                  title='清空搜索'
+                >
+                  <X className='h-4 w-4 text-gray-500 dark:text-gray-400 group-hover/clear:text-gray-700 dark:group-hover/clear:text-gray-200 transition-colors' />
+                </button>
+              )}
             </div>
+
+            {/* 调试信息 */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className='text-xs text-gray-500 mt-2 text-center'>
+                搜索框状态: "{searchQuery}" | 显示结果:{' '}
+                {showResults ? '是' : '否'} | 历史记录数: {searchHistory.length}
+              </div>
+            )}
           </form>
         </div>
 

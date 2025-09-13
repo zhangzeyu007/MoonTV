@@ -695,6 +695,20 @@ export async function addSearchHistory(keyword: string): Promise<void> {
 export async function clearSearchHistory(): Promise<void> {
   // 数据库存储模式：乐观更新策略（包括 redis、d1、upstash）
   if (STORAGE_TYPE !== 'localstorage') {
+    // 检查用户是否已登录
+    const authInfo = getAuthInfoFromBrowserCookie();
+    if (!authInfo || !authInfo.username) {
+      console.warn('用户未登录，无法清空搜索历史');
+      // 即使未登录，也要清除本地缓存和触发事件
+      cacheManager.cacheSearchHistory([]);
+      window.dispatchEvent(
+        new CustomEvent('searchHistoryUpdated', {
+          detail: [],
+        })
+      );
+      return;
+    }
+
     // 立即更新缓存
     cacheManager.cacheSearchHistory([]);
 
@@ -710,16 +724,32 @@ export async function clearSearchHistory(): Promise<void> {
       const res = await fetch(`/api/searchhistory`, {
         method: 'DELETE',
       });
-      if (!res.ok) throw new Error(`清空搜索历史失败: ${res.status}`);
+      if (!res.ok) {
+        if (res.status === 401) {
+          console.warn('用户认证失败，仅清除本地缓存');
+          return;
+        }
+        throw new Error(`清空搜索历史失败: ${res.status}`);
+      }
     } catch (err) {
-      await handleDatabaseOperationFailure('searchHistory', err);
+      console.warn('清空搜索历史API调用失败:', err);
+      // 即使API调用失败，本地缓存已经被清除，事件也已经触发
+      // 不需要调用 handleDatabaseOperationFailure，因为这是用户主动操作
     }
     return;
   }
 
   // localStorage 模式
   if (typeof window === 'undefined') return;
+  console.log(
+    '清除前的搜索历史记录:',
+    localStorage.getItem(SEARCH_HISTORY_KEY)
+  );
   localStorage.removeItem(SEARCH_HISTORY_KEY);
+  console.log(
+    '清除后的搜索历史记录:',
+    localStorage.getItem(SEARCH_HISTORY_KEY)
+  );
   window.dispatchEvent(
     new CustomEvent('searchHistoryUpdated', {
       detail: [],
@@ -737,6 +767,22 @@ export async function deleteSearchHistory(keyword: string): Promise<void> {
 
   // 数据库存储模式：乐观更新策略（包括 redis、d1、upstash）
   if (STORAGE_TYPE !== 'localstorage') {
+    // 检查用户是否已登录
+    const authInfo = getAuthInfoFromBrowserCookie();
+    if (!authInfo || !authInfo.username) {
+      console.warn('用户未登录，无法删除搜索历史');
+      // 即使未登录，也要清除本地缓存和触发事件
+      const cachedHistory = cacheManager.getCachedSearchHistory() || [];
+      const newHistory = cachedHistory.filter((k) => k !== trimmed);
+      cacheManager.cacheSearchHistory(newHistory);
+      window.dispatchEvent(
+        new CustomEvent('searchHistoryUpdated', {
+          detail: newHistory,
+        })
+      );
+      return;
+    }
+
     // 立即更新缓存
     const cachedHistory = cacheManager.getCachedSearchHistory() || [];
     const newHistory = cachedHistory.filter((k) => k !== trimmed);
@@ -757,9 +803,17 @@ export async function deleteSearchHistory(keyword: string): Promise<void> {
           method: 'DELETE',
         }
       );
-      if (!res.ok) throw new Error(`删除搜索历史失败: ${res.status}`);
+      if (!res.ok) {
+        if (res.status === 401) {
+          console.warn('用户认证失败，仅清除本地缓存');
+          return;
+        }
+        throw new Error(`删除搜索历史失败: ${res.status}`);
+      }
     } catch (err) {
-      await handleDatabaseOperationFailure('searchHistory', err);
+      console.warn('删除搜索历史API调用失败:', err);
+      // 即使API调用失败，本地缓存已经被更新，事件也已经触发
+      // 不需要调用 handleDatabaseOperationFailure，因为这是用户主动操作
     }
     return;
   }
