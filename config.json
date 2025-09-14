@@ -116,11 +116,6 @@
       "name": "百万资源",
       "detail": "https://api.bwzyz.com"
     },
-    "AV6": {
-      "api": "http://lbapiby.com/api.php/provide/vod/at/json",
-      "name": "AV-AIvin",
-      "detail": "http://lbapiby.com"
-    },
 	"AV7": {
       "api": "https://api.souavzy.vip/api.php/provide/vod/",
       "name": "搜av",
@@ -145,11 +140,6 @@
       "api": "https://Naixxzy.com/api.php/provide/vod",
       "name": "AV-奶香香",
       "detail": "https://Naixxzy.com"
-    },
-	"AV12": {
-      "api": "https://api.xiaojizy.live/provide/vod",
-      "name": "小鸡资源",
-      "detail": "https://apiyutu.com"
     },
 	"AV13": {
       "api": "https://siwazyw.tv/api.php/provide/vod",
@@ -183,37 +173,7 @@
     "AV19": {
       "api": "https://91jpzyw.com/api.php/provide/vod",
       "name": "91资源"
-    },
-    "AV20": {
-      "api": "https://www.gdlsp.com/api/json.php",
-      "name": "AV-香奶儿资源",
-      "detail": "https://www.gdlsp.com"
-    },
-	"AV21": {
-      "api": "https://www.kxgav.com/api/json.php",
-      "name": "AV-白嫖资源",
-      "detail": "https://www.kxgav.com"
-    },
-   "AV22": {
-      "api": "https://api.ddapi.cc/api.php/provide/vod/",
-      "name": "滴滴资源",
-      "detail": "https://www.kxgav.com"
-    },
-	"AV23": {
-    "api": "https://www.xrbsp.com/api/json.php",
-    "name": "AV-淫水资源",
-    "detail": "https://www.xrbsp.com"
-    },
-    "AV24": {
-    "api": "https://www.msnii.com/api/json.php",
-    "name": "AV-美少女资源",
-    "detail": "https://www.msnii.com"
-	},
-    "AV25": {
-    "api": "https://lbapi9.com/api.php/provide/vod/at/json",
-    "name": "AV-乐播资源",
-    "detail": "https://lbapi9.com"
-	}
+    }
   }
 }
 
