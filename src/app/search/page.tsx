@@ -863,6 +863,52 @@ function SearchPageClient() {
     }
   }, [pendingScrollPosition, showResults, searchResults.length]);
 
+  // 在组件作用域提供可复用的强制滚动恢复函数，供多个 effect 使用
+  const forceRestoreScroll = useCallback((target: number) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined')
+      return;
+    const maxAttempts = 80; // ~80帧，约1.3s
+    let attempts = 0;
+    const tolerance = 8;
+    const getMaxScrollTop = () =>
+      Math.max(
+        document.body.scrollHeight - window.innerHeight,
+        document.documentElement.scrollHeight - window.innerHeight,
+        0
+      );
+    const trySet = () => {
+      const scrollingElement =
+        document.scrollingElement ||
+        document.documentElement ||
+        (document.body as HTMLElement);
+      const clamped = Math.max(0, Math.min(target, getMaxScrollTop()));
+      if (scrollingElement) scrollingElement.scrollTop = clamped;
+      window.scrollTo(0, clamped);
+      if (document.documentElement)
+        document.documentElement.scrollTop = clamped;
+      if (document.body) (document.body as HTMLElement).scrollTop = clamped;
+
+      const current = scrollingElement
+        ? scrollingElement.scrollTop
+        : window.scrollY;
+      if (Math.abs(current - clamped) <= tolerance) return;
+      attempts += 1;
+      if (attempts >= maxAttempts) return;
+      requestAnimationFrame(trySet);
+    };
+
+    if (document.readyState !== 'complete') {
+      const onLoad = () => {
+        window.removeEventListener('load', onLoad);
+        requestAnimationFrame(trySet);
+      };
+      window.addEventListener('load', onLoad);
+      requestAnimationFrame(trySet);
+    } else {
+      requestAnimationFrame(trySet);
+    }
+  }, []);
+
   // 处理 bfcache（返回缓存）场景，确保从播放页返回时也能恢复
   useEffect(() => {
     const unlockIOSInteraction = () => {
@@ -912,50 +958,7 @@ function SearchPageClient() {
       }
     };
 
-    const forceRestoreScroll = (target: number) => {
-      if (typeof window === 'undefined' || typeof document === 'undefined')
-        return;
-      const maxAttempts = 80; // ~80帧，约1.3s
-      let attempts = 0;
-      const tolerance = 8;
-      const getMaxScrollTop = () =>
-        Math.max(
-          document.body.scrollHeight - window.innerHeight,
-          document.documentElement.scrollHeight - window.innerHeight,
-          0
-        );
-      const trySet = () => {
-        const scrollingElement =
-          document.scrollingElement ||
-          document.documentElement ||
-          (document.body as HTMLElement);
-        const clamped = Math.max(0, Math.min(target, getMaxScrollTop()));
-        if (scrollingElement) scrollingElement.scrollTop = clamped;
-        window.scrollTo(0, clamped);
-        if (document.documentElement)
-          document.documentElement.scrollTop = clamped;
-        if (document.body) (document.body as HTMLElement).scrollTop = clamped;
-
-        const current = scrollingElement
-          ? scrollingElement.scrollTop
-          : window.scrollY;
-        if (Math.abs(current - clamped) <= tolerance) return;
-        attempts += 1;
-        if (attempts >= maxAttempts) return;
-        requestAnimationFrame(trySet);
-      };
-
-      if (document.readyState !== 'complete') {
-        const onLoad = () => {
-          window.removeEventListener('load', onLoad);
-          requestAnimationFrame(trySet);
-        };
-        window.addEventListener('load', onLoad);
-        requestAnimationFrame(trySet);
-      } else {
-        requestAnimationFrame(trySet);
-      }
-    };
+    // forceRestoreScroll 已上移到组件作用域
 
     const restoreFromStorage = (e?: PageTransitionEvent) => {
       const doRestore = () => {
