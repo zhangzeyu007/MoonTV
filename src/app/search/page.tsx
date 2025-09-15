@@ -79,13 +79,33 @@ function SearchPageClient() {
   const saveSearchState = useCallback(() => {
     if (typeof window === 'undefined') return;
 
+    const scrollingElement =
+      (typeof document !== 'undefined' && document.scrollingElement) ||
+      (typeof document !== 'undefined' &&
+        (document.documentElement || (document.body as HTMLElement))) ||
+      null;
+    const currentScrollY = (() => {
+      if (typeof window === 'undefined') return 0;
+      if (scrollingElement) return scrollingElement.scrollTop || 0;
+      const y1 = typeof window.scrollY === 'number' ? window.scrollY : 0;
+      const y2 =
+        typeof document !== 'undefined' && document.documentElement
+          ? document.documentElement.scrollTop
+          : 0;
+      const y3 =
+        typeof document !== 'undefined' && document.body
+          ? (document.body as HTMLElement).scrollTop
+          : 0;
+      return Math.max(y1, y2, y3, 0);
+    })();
+
     const searchState = {
       query: searchQuery,
       results: searchResults,
       showResults: showResults,
       viewMode: viewMode,
       selectedResources: selectedResources,
-      scrollPosition: window.scrollY,
+      scrollPosition: currentScrollY,
       timestamp: Date.now(),
     };
 
@@ -104,16 +124,22 @@ function SearchPageClient() {
       const currentState = localStorage.getItem('searchPageState');
       if (currentState) {
         const parsedState = JSON.parse(currentState);
+        const scrollingElement =
+          (typeof document !== 'undefined' && document.scrollingElement) ||
+          (typeof document !== 'undefined' &&
+            (document.documentElement || (document.body as HTMLElement))) ||
+          null;
         const y1 = typeof window.scrollY === 'number' ? window.scrollY : 0;
-        const y2 =
+        const y2 = scrollingElement ? scrollingElement.scrollTop : 0;
+        const y3 =
           typeof document !== 'undefined' && document.documentElement
             ? document.documentElement.scrollTop
             : 0;
-        const y3 =
+        const y4 =
           typeof document !== 'undefined' && document.body
             ? (document.body as HTMLElement).scrollTop
             : 0;
-        const currentScroll = Math.max(y1, y2, y3, 0);
+        const currentScroll = Math.max(y1, y2, y3, y4, 0);
         parsedState.scrollPosition = currentScroll;
         parsedState.timestamp = Date.now();
         localStorage.setItem('searchPageState', JSON.stringify(parsedState));
@@ -727,6 +753,11 @@ function SearchPageClient() {
   useLayoutEffect(() => {
     if (pendingScrollPosition !== null) {
       const restoreScroll = () => {
+        const scrollingElement =
+          (typeof document !== 'undefined' && document.scrollingElement) ||
+          (typeof document !== 'undefined' &&
+            (document.documentElement || (document.body as HTMLElement))) ||
+          null;
         const getMaxScrollTop = () =>
           Math.max(
             document.body.scrollHeight - window.innerHeight,
@@ -750,14 +781,21 @@ function SearchPageClient() {
         const tolerance = 8; // 容差像素
 
         const tryScroll = () => {
-          // 尝试滚动
+          // 尝试滚动（优先写入 scrollingElement，以兼容 iOS Safari）
+          if (scrollingElement) {
+            scrollingElement.scrollTop = targetPosition;
+          }
           window.scrollTo(0, targetPosition);
-          document.documentElement.scrollTop = targetPosition;
-          document.body.scrollTop = targetPosition;
+          if (document.documentElement)
+            document.documentElement.scrollTop = targetPosition;
+          if (document.body)
+            (document.body as HTMLElement).scrollTop = targetPosition;
 
           // 若内容高度不足，先不判失败，等待高度增长
           const _maxTop = getMaxScrollTop();
-          const current = window.scrollY;
+          const current = scrollingElement
+            ? scrollingElement.scrollTop
+            : window.scrollY;
           // periodic attempts to restore scroll
 
           if (Math.abs(current - targetPosition) <= tolerance) {

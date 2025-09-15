@@ -23,6 +23,8 @@ body {
   overflow-x: hidden;
   /* 阻止 iOS Safari 拉动回弹 */
   overscroll-behavior: none;
+  /* 启用 iOS 惯性滚动 */
+  -webkit-overflow-scrolling: touch;
 }
 
 body {
