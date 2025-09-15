@@ -202,16 +202,22 @@ export default function VideoCard({
         const currentState = localStorage.getItem('searchPageState');
         if (currentState) {
           const parsedState = JSON.parse(currentState);
+          const scrollingElement =
+            (typeof document !== 'undefined' && document.scrollingElement) ||
+            (typeof document !== 'undefined' &&
+              (document.documentElement || (document.body as HTMLElement))) ||
+            null;
           const y1 = typeof window.scrollY === 'number' ? window.scrollY : 0;
-          const y2 =
+          const y2 = scrollingElement ? scrollingElement.scrollTop : 0;
+          const y3 =
             typeof document !== 'undefined' && document.documentElement
               ? document.documentElement.scrollTop
               : 0;
-          const y3 =
+          const y4 =
             typeof document !== 'undefined' && document.body
               ? (document.body as HTMLElement).scrollTop
               : 0;
-          const currentScroll = Math.max(y1, y2, y3, 0);
+          const currentScroll = Math.max(y1, y2, y3, y4, 0);
           parsedState.scrollPosition = currentScroll;
           parsedState.timestamp = Date.now();
           localStorage.setItem('searchPageState', JSON.stringify(parsedState));
@@ -223,8 +229,30 @@ export default function VideoCard({
             showResults: false,
             viewMode: 'agg',
             selectedResources: [],
-            scrollPosition:
-              typeof window.scrollY === 'number' ? window.scrollY : 0,
+            scrollPosition: (() => {
+              const scrollingElement =
+                (typeof document !== 'undefined' &&
+                  document.scrollingElement) ||
+                (typeof document !== 'undefined' &&
+                  (document.documentElement ||
+                    (document.body as HTMLElement))) ||
+                null;
+              const y1 =
+                typeof window !== 'undefined' &&
+                typeof window.scrollY === 'number'
+                  ? window.scrollY
+                  : 0;
+              const y2 = scrollingElement ? scrollingElement.scrollTop : 0;
+              const y3 =
+                typeof document !== 'undefined' && document.documentElement
+                  ? document.documentElement.scrollTop
+                  : 0;
+              const y4 =
+                typeof document !== 'undefined' && document.body
+                  ? (document.body as HTMLElement).scrollTop
+                  : 0;
+              return Math.max(y1, y2, y3, y4, 0);
+            })(),
             timestamp: Date.now(),
           };
           localStorage.setItem('searchPageState', JSON.stringify(newState));
