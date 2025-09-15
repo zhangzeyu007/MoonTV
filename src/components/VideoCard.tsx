@@ -35,6 +35,7 @@ interface VideoCardProps {
   rate?: string;
   items?: SearchResult[];
   type?: string;
+  anchorKey?: string;
 }
 
 export default function VideoCard({
@@ -54,6 +55,7 @@ export default function VideoCard({
   rate,
   items,
   type = '',
+  anchorKey,
 }: VideoCardProps) {
   const router = useRouter();
   const [favorited, setFavorited] = useState(false);
@@ -219,6 +221,7 @@ export default function VideoCard({
               : 0;
           const currentScroll = Math.max(y1, y2, y3, y4, 0);
           parsedState.scrollPosition = currentScroll;
+          if (anchorKey) parsedState.anchorKey = anchorKey;
           parsedState.timestamp = Date.now();
           localStorage.setItem('searchPageState', JSON.stringify(parsedState));
         } else {
@@ -253,6 +256,7 @@ export default function VideoCard({
                   : 0;
               return Math.max(y1, y2, y3, y4, 0);
             })(),
+            anchorKey: anchorKey || null,
             timestamp: Date.now(),
           };
           localStorage.setItem('searchPageState', JSON.stringify(newState));
@@ -291,6 +295,7 @@ export default function VideoCard({
     isAggregate,
     actualQuery,
     actualSearchType,
+    anchorKey,
   ]);
 
   const config = useMemo(() => {

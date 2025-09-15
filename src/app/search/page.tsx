@@ -968,6 +968,21 @@ function SearchPageClient() {
             // iOS 直接强制多帧复位，避免某些 WebKit 场景 pending 未生效
             if (isIOS) forceRestoreScroll(parsed.scrollPosition);
           }
+          if (parsed && parsed.anchorKey) {
+            const el = document.querySelector(
+              `[data-search-key="${parsed.anchorKey}"]`
+            ) as HTMLElement | null;
+            if (el) {
+              try {
+                el.scrollIntoView({
+                  block: 'start',
+                  behavior: 'instant' as any,
+                });
+              } catch (_) {
+                el.scrollIntoView({ block: 'start' });
+              }
+            }
+          }
         } catch (e) {
           /* ignore */
         }
@@ -1262,7 +1277,11 @@ function SearchPageClient() {
                 {viewMode === 'agg'
                   ? aggregatedResults.map(([mapKey, group]) => {
                       return (
-                        <div key={`agg-${mapKey}`} className='w-full'>
+                        <div
+                          key={`agg-${mapKey}`}
+                          data-search-key={`agg-${mapKey}`}
+                          className='w-full'
+                        >
                           <VideoCard
                             from='search'
                             items={group}
@@ -1271,6 +1290,7 @@ function SearchPageClient() {
                                 ? searchQuery.trim()
                                 : ''
                             }
+                            anchorKey={`agg-${mapKey}`}
                           />
                         </div>
                       );
@@ -1278,6 +1298,7 @@ function SearchPageClient() {
                   : searchResults.map((item) => (
                       <div
                         key={`all-${item.source}-${item.id}`}
+                        data-search-key={`all-${item.source}-${item.id}`}
                         className='w-full'
                       >
                         <VideoCard
@@ -1296,6 +1317,7 @@ function SearchPageClient() {
                           year={item.year}
                           from='search'
                           type={item.episodes.length > 1 ? 'tv' : 'movie'}
+                          anchorKey={`all-${item.source}-${item.id}`}
                         />
                       </div>
                     ))}
