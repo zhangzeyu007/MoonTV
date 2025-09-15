@@ -44,6 +44,13 @@ function SearchPageClient() {
     number | null
   >(null);
 
+  // iOS 与 bfcache 兼容性处理
+  const isIOS = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    return /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  }, []);
+  const isBFCacheRef = useRef(false);
+
   // 使用ref存储最新的搜索参数，避免闭包问题
   const searchQueryRef = useRef(searchQuery);
   const viewModeRef = useRef<'agg' | 'all'>('agg');
@@ -706,6 +713,7 @@ function SearchPageClient() {
       !('scrollRestoration' in window.history)
     )
       return;
+    if (isIOS) return;
     const prev = window.history.scrollRestoration;
     try {
       window.history.scrollRestoration = 'manual';
@@ -752,6 +760,7 @@ function SearchPageClient() {
   // 统一的滚动位置恢复逻辑（使用 useLayoutEffect 提前于绘制）
   useLayoutEffect(() => {
     if (pendingScrollPosition !== null) {
+      if (isBFCacheRef.current) return;
       const restoreScroll = () => {
         const scrollingElement =
           (typeof document !== 'undefined' && document.scrollingElement) ||
@@ -858,7 +867,11 @@ function SearchPageClient() {
 
   // 处理 bfcache（返回缓存）场景，确保从播放页返回时也能恢复
   useEffect(() => {
-    const restoreFromStorage = () => {
+    const restoreFromStorage = (e?: PageTransitionEvent) => {
+      if (e && 'persisted' in e && (e as any).persisted) {
+        isBFCacheRef.current = true;
+        return;
+      }
       try {
         const saved = localStorage.getItem('searchPageState');
         if (!saved) return;
@@ -870,7 +883,8 @@ function SearchPageClient() {
         /* ignore */
       }
     };
-    const onPageShow = () => restoreFromStorage();
+    const onPageShow = (event: Event) =>
+      restoreFromStorage(event as PageTransitionEvent);
     const onPopState = () => restoreFromStorage();
     window.addEventListener('pageshow', onPageShow);
     window.addEventListener('popstate', onPopState);
