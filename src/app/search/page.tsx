@@ -113,6 +113,90 @@ function SearchPageClient() {
     [getScrollingElement, isIOS]
   );
 
+  // 等待锚点元素渲染后再进行定位与像素校正（iOS 可靠性增强）
+  const anchorThenScroll = useCallback(
+    (
+      anchorKey: string | null | undefined,
+      target: number | null | undefined
+    ) => {
+      if (!anchorKey && !target) return;
+      const tryLocate = () =>
+        document.querySelector(
+          anchorKey ? `[data-search-key="${anchorKey}"]` : ''
+        ) as HTMLElement | null;
+
+      const performScroll = () => {
+        try {
+          // 先锚点（若有），后像素校正（若有）
+          const el = anchorKey ? tryLocate() : null;
+          if (el) {
+            try {
+              el.scrollIntoView({ block: 'start', behavior: 'auto' });
+            } catch (_) {
+              el.scrollIntoView({ block: 'start' as any });
+            }
+          }
+          if (typeof target === 'number' && target > 0) {
+            setScrollTop(target);
+          }
+        } catch (_) {
+          /* ignore */
+        }
+      };
+
+      // 如果元素已存在，直接定位+校正，并安排几次滞后重试
+      const elNow = anchorKey ? tryLocate() : null;
+      if (elNow || (!anchorKey && typeof target === 'number')) {
+        performScroll();
+        [120, 300, 600, 1000, 1500, 2000, 2500].forEach((t) =>
+          setTimeout(performScroll, t)
+        );
+        return;
+      }
+
+      // 元素尚未出现：建立观察与轮询，最长等待 2500ms
+      let elapsed = 0;
+      const interval = 100;
+      const maxWait = 2500;
+      let observer: MutationObserver | null = null;
+
+      const tick = () => {
+        const el = anchorKey ? tryLocate() : null;
+        if (el || elapsed >= maxWait) {
+          if (observer) observer.disconnect();
+          performScroll();
+          [120, 300, 600, 1000, 1500, 2000].forEach((t) =>
+            setTimeout(performScroll, t)
+          );
+          return;
+        }
+        elapsed += interval;
+        setTimeout(tick, interval);
+      };
+
+      try {
+        observer = new MutationObserver(() => {
+          const el = anchorKey ? tryLocate() : null;
+          if (el) {
+            if (observer) observer.disconnect();
+            performScroll();
+            [120, 300, 600, 1000, 1500, 2000].forEach((t) =>
+              setTimeout(performScroll, t)
+            );
+          }
+        });
+        observer.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+        });
+      } catch (_) {
+        /* ignore */
+      }
+      tick();
+    },
+    [setScrollTop]
+  );
+
   // 获取默认聚合设置：只读取用户本地设置，默认为 true
   const getDefaultAggregate = useCallback(() => {
     if (typeof window !== 'undefined') {
@@ -812,24 +896,11 @@ function SearchPageClient() {
           } catch (_) {
             /* ignore */
           }
-          // 先尝试根据锚点进行初步定位，然后再精确校正到像素
+          // 先锚点，再精确像素校正（带等待/重试）
           try {
             const saved = localStorage.getItem('searchPageState');
-            if (saved) {
-              const parsed = JSON.parse(saved);
-              if (parsed && parsed.anchorKey) {
-                const el = document.querySelector(
-                  `[data-search-key="${parsed.anchorKey}"]`
-                ) as HTMLElement | null;
-                if (el) {
-                  try {
-                    el.scrollIntoView({ block: 'start', behavior: 'auto' });
-                  } catch (_) {
-                    el.scrollIntoView({ block: 'start' as any });
-                  }
-                }
-              }
-            }
+            const parsed = saved ? JSON.parse(saved) : null;
+            anchorThenScroll(parsed?.anchorKey, targetPosition);
           } catch (_) {
             /* ignore */
           }
@@ -1067,26 +1138,8 @@ function SearchPageClient() {
           if (!saved) return;
           const parsed = JSON.parse(saved);
           // 先根据锚点进行初步定位
-          if (parsed && parsed.anchorKey) {
-            const el = document.querySelector(
-              `[data-search-key="${parsed.anchorKey}"]`
-            ) as HTMLElement | null;
-            if (el) {
-              try {
-                el.scrollIntoView({
-                  block: 'start',
-                  behavior: 'instant' as any,
-                });
-              } catch (_) {
-                el.scrollIntoView({ block: 'start' });
-              }
-            }
-          }
-          // 再精确复位到保存的像素位置
-          if (parsed && parsed.scrollPosition > 0) {
-            setPendingScrollPosition(parsed.scrollPosition);
-            if (isIOS) forceRestoreScroll(parsed.scrollPosition);
-          }
+          // 先锚点，再精确像素校正（带等待/重试）
+          anchorThenScroll(parsed?.anchorKey, parsed?.scrollPosition);
         } catch (e) {
           /* ignore */
         }
