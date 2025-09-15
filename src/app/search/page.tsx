@@ -912,6 +912,51 @@ function SearchPageClient() {
       }
     };
 
+    const forceRestoreScroll = (target: number) => {
+      if (typeof window === 'undefined' || typeof document === 'undefined')
+        return;
+      const maxAttempts = 80; // ~80帧，约1.3s
+      let attempts = 0;
+      const tolerance = 8;
+      const getMaxScrollTop = () =>
+        Math.max(
+          document.body.scrollHeight - window.innerHeight,
+          document.documentElement.scrollHeight - window.innerHeight,
+          0
+        );
+      const trySet = () => {
+        const scrollingElement =
+          document.scrollingElement ||
+          document.documentElement ||
+          (document.body as HTMLElement);
+        const clamped = Math.max(0, Math.min(target, getMaxScrollTop()));
+        if (scrollingElement) scrollingElement.scrollTop = clamped;
+        window.scrollTo(0, clamped);
+        if (document.documentElement)
+          document.documentElement.scrollTop = clamped;
+        if (document.body) (document.body as HTMLElement).scrollTop = clamped;
+
+        const current = scrollingElement
+          ? scrollingElement.scrollTop
+          : window.scrollY;
+        if (Math.abs(current - clamped) <= tolerance) return;
+        attempts += 1;
+        if (attempts >= maxAttempts) return;
+        requestAnimationFrame(trySet);
+      };
+
+      if (document.readyState !== 'complete') {
+        const onLoad = () => {
+          window.removeEventListener('load', onLoad);
+          requestAnimationFrame(trySet);
+        };
+        window.addEventListener('load', onLoad);
+        requestAnimationFrame(trySet);
+      } else {
+        requestAnimationFrame(trySet);
+      }
+    };
+
     const restoreFromStorage = (e?: PageTransitionEvent) => {
       const doRestore = () => {
         try {
@@ -920,6 +965,8 @@ function SearchPageClient() {
           const parsed = JSON.parse(saved);
           if (parsed && parsed.scrollPosition > 0) {
             setPendingScrollPosition(parsed.scrollPosition);
+            // iOS 直接强制多帧复位，避免某些 WebKit 场景 pending 未生效
+            if (isIOS) forceRestoreScroll(parsed.scrollPosition);
           }
         } catch (e) {
           /* ignore */
@@ -946,6 +993,23 @@ function SearchPageClient() {
         setTimeout(unlockIOSInteraction, 0);
       }
       restoreFromStorage(event as PageTransitionEvent);
+      // 若由左上返回触发，则在稍后再尝试恢复，增加命中概率
+      try {
+        const trigger = localStorage.getItem('searchReturnTrigger');
+        if (trigger) {
+          setTimeout(
+            () => restoreFromStorage(event as PageTransitionEvent),
+            200
+          );
+          setTimeout(
+            () => restoreFromStorage(event as PageTransitionEvent),
+            500
+          );
+          localStorage.removeItem('searchReturnTrigger');
+        }
+      } catch (_) {
+        /* ignore */
+      }
     };
     const onPopState = () => restoreFromStorage();
     window.addEventListener('pageshow', onPageShow);

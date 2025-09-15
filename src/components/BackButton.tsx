@@ -5,6 +5,12 @@ import { useCallback } from 'react';
 
 export function BackButton() {
   const handleBack = useCallback(() => {
+    // 标记一次“从播放页返回搜索”的触发点，便于搜索页在 iOS 上加固恢复
+    try {
+      localStorage.setItem('searchReturnTrigger', String(Date.now()));
+    } catch (_) {
+      /* ignore */
+    }
     // 直接使用浏览器历史记录返回，让搜索页面自己处理状态恢复
     window.history.back();
   }, []);
