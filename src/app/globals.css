@@ -95,6 +95,19 @@ html:not(.dark) body {
   }
 }
 
+/* iOS Safari: fixed background can break scroll; disable fixed on iOS */
+@supports (-webkit-touch-callout: none) {
+  html:not(.dark) body {
+    background-attachment: scroll;
+  }
+}
+
+/* Allow vertical panning for iOS Safari */
+html,
+body {
+  touch-action: pan-y;
+}
+
 /* 隐藏所有滚动条（兼容 WebKit、Firefox、IE/Edge） */
 * {
   -ms-overflow-style: none; /* IE & Edge */
