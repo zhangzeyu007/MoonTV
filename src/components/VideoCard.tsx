@@ -196,11 +196,50 @@ export default function VideoCard({
   );
 
   const handleClick = useCallback(() => {
+    // 如果是从搜索页面跳转，保存当前滚动位置
+    if (from === 'search' && typeof window !== 'undefined') {
+      try {
+        const currentState = localStorage.getItem('searchPageState');
+        if (currentState) {
+          const parsedState = JSON.parse(currentState);
+          const y1 = typeof window.scrollY === 'number' ? window.scrollY : 0;
+          const y2 =
+            typeof document !== 'undefined' && document.documentElement
+              ? document.documentElement.scrollTop
+              : 0;
+          const y3 =
+            typeof document !== 'undefined' && document.body
+              ? (document.body as HTMLElement).scrollTop
+              : 0;
+          const currentScroll = Math.max(y1, y2, y3, 0);
+          parsedState.scrollPosition = currentScroll;
+          parsedState.timestamp = Date.now();
+          localStorage.setItem('searchPageState', JSON.stringify(parsedState));
+        } else {
+          // 如果没有保存的状态，创建一个新的状态来保存滚动位置
+          const newState = {
+            query: '',
+            results: [],
+            showResults: false,
+            viewMode: 'agg',
+            selectedResources: [],
+            scrollPosition:
+              typeof window.scrollY === 'number' ? window.scrollY : 0,
+            timestamp: Date.now(),
+          };
+          localStorage.setItem('searchPageState', JSON.stringify(newState));
+        }
+      } catch (error) {
+        // 静默处理错误
+      }
+    }
+
     if (from === 'douban') {
       router.push(
         `/play?title=${encodeURIComponent(actualTitle.trim())}${
           actualYear ? `&year=${actualYear}` : ''
-        }${actualSearchType ? `&stype=${actualSearchType}` : ''}`
+        }${actualSearchType ? `&stype=${actualSearchType}` : ''}`,
+        { scroll: false }
       );
     } else if (actualSource && actualId) {
       router.push(
@@ -210,7 +249,8 @@ export default function VideoCard({
           isAggregate ? '&prefer=true' : ''
         }${
           actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
-        }${actualSearchType ? `&stype=${actualSearchType}` : ''}`
+        }${actualSearchType ? `&stype=${actualSearchType}` : ''}`,
+        { scroll: false }
       );
     }
   }, [

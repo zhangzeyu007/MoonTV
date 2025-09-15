@@ -7,6 +7,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -39,6 +40,9 @@ function SearchPageClient() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isNavigatingBack, setIsNavigatingBack] = useState(false);
   const [hasRestoredState, setHasRestoredState] = useState(false);
+  const [pendingScrollPosition, setPendingScrollPosition] = useState<
+    number | null
+  >(null);
 
   // 使用ref存储最新的搜索参数，避免闭包问题
   const searchQueryRef = useRef(searchQuery);
@@ -81,6 +85,7 @@ function SearchPageClient() {
       showResults: showResults,
       viewMode: viewMode,
       selectedResources: selectedResources,
+      scrollPosition: window.scrollY,
       timestamp: Date.now(),
     };
 
@@ -90,6 +95,50 @@ function SearchPageClient() {
       // 静默处理错误
     }
   }, [searchQuery, searchResults, showResults, viewMode, selectedResources]);
+
+  // 保存当前滚动位置
+  const saveScrollPosition = useCallback(() => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const currentState = localStorage.getItem('searchPageState');
+      if (currentState) {
+        const parsedState = JSON.parse(currentState);
+        const y1 = typeof window.scrollY === 'number' ? window.scrollY : 0;
+        const y2 =
+          typeof document !== 'undefined' && document.documentElement
+            ? document.documentElement.scrollTop
+            : 0;
+        const y3 =
+          typeof document !== 'undefined' && document.body
+            ? (document.body as HTMLElement).scrollTop
+            : 0;
+        const currentScroll = Math.max(y1, y2, y3, 0);
+        parsedState.scrollPosition = currentScroll;
+        parsedState.timestamp = Date.now();
+        localStorage.setItem('searchPageState', JSON.stringify(parsedState));
+      }
+    } catch (error) {
+      // 静默处理错误
+    }
+  }, []);
+
+  // 在用户滚动时实时保存滚动位置（rAF 节流）
+  useEffect(() => {
+    let ticking = false;
+    const onScroll = () => {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(() => {
+          saveScrollPosition();
+          ticking = false;
+        });
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () =>
+      window.removeEventListener('scroll', onScroll as EventListener);
+  }, [saveScrollPosition]);
 
   // 从本地存储恢复搜索状态
   const restoreSearchState = useCallback(() => {
@@ -115,7 +164,7 @@ function SearchPageClient() {
     return null;
   }, []);
 
-  // 检测是否为从详情页返回
+  // 检测是否为从详情页返回 - 简化逻辑
   const detectNavigationBack = useCallback(() => {
     if (typeof window === 'undefined') return false;
 
@@ -126,26 +175,17 @@ function SearchPageClient() {
     try {
       const parsedState = JSON.parse(savedState);
       const timeDiff = Date.now() - parsedState.timestamp;
-      const urlQuery = searchParams.get('q');
 
       // 如果保存的状态时间戳很近（30分钟内），认为是从详情页返回
       const isRecentState = timeDiff < 30 * 60 * 1000; // 30分钟内
 
-      // 如果有保存的状态且时间较近，则认为是从详情页返回
-      if (isRecentState) {
-        // 如果URL中有查询参数，检查是否与保存的状态一致
-        if (urlQuery) {
-          return urlQuery === parsedState.query;
-        }
-        // 如果URL中没有查询参数，更可能是从详情页返回
-        return true;
-      }
-
-      return false;
+      // 简化逻辑：只要有最近的状态就认为是返回导航
+      // navigation back detected based on recent timestamp
+      return isRecentState;
     } catch (error) {
       return false;
     }
-  }, [searchParams]);
+  }, []);
 
   // 保存搜索状态到本地存储
   useEffect(() => {
@@ -481,6 +521,30 @@ function SearchPageClient() {
         if (savedState.results && savedState.results.length > 0) {
           setShowResults(true);
         }
+
+        // 保存待恢复的滚动位置
+        if (
+          savedState.scrollPosition !== undefined &&
+          savedState.scrollPosition > 0
+        ) {
+          setPendingScrollPosition(savedState.scrollPosition);
+        }
+
+        // 从详情页返回时，需要刷新数据但保持滚动位置
+        if (savedState.query) {
+          // 延迟刷新数据，确保状态先恢复
+          setTimeout(() => {
+            fetchSearchResults(savedState.query).then(() => {
+              // 数据刷新完成后，如果还有待恢复的滚动位置，重新触发滚动恢复
+              if (pendingScrollPosition !== null) {
+                // 使用setTimeout确保DOM更新完成
+                setTimeout(() => {
+                  setPendingScrollPosition(pendingScrollPosition);
+                }, 100);
+              }
+            });
+          }, 50);
+        }
       } else if (urlQuery) {
         // 有URL参数，使用URL参数（用户主动搜索或直接访问）
         setSearchQuery(urlQuery);
@@ -609,6 +673,175 @@ function SearchPageClient() {
     };
   }, []);
 
+  // 显式控制浏览器的滚动恢复，避免与我们自定义逻辑冲突
+  useLayoutEffect(() => {
+    if (
+      typeof window === 'undefined' ||
+      !('scrollRestoration' in window.history)
+    )
+      return;
+    const prev = window.history.scrollRestoration;
+    try {
+      window.history.scrollRestoration = 'manual';
+    } catch (e) {
+      /* ignore */
+    }
+    return () => {
+      try {
+        window.history.scrollRestoration = prev as 'auto' | 'manual';
+      } catch (e) {
+        /* ignore */
+      }
+    };
+  }, []);
+
+  // 页面卸载时保存滚动位置
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      saveScrollPosition();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        saveScrollPosition();
+      }
+    };
+
+    const handlePageHide = () => {
+      // pagehide 可用于 bfcache 场景
+      saveScrollPosition();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [saveScrollPosition]);
+
+  // 统一的滚动位置恢复逻辑（使用 useLayoutEffect 提前于绘制）
+  useLayoutEffect(() => {
+    if (pendingScrollPosition !== null) {
+      const restoreScroll = () => {
+        const getMaxScrollTop = () =>
+          Math.max(
+            document.body.scrollHeight - window.innerHeight,
+            document.documentElement.scrollHeight - window.innerHeight,
+            0
+          );
+
+        const targetPosition = Math.max(
+          0,
+          Math.min(pendingScrollPosition, getMaxScrollTop())
+        );
+        // start restore scroll
+
+        if (targetPosition === 0) {
+          setPendingScrollPosition(null);
+          return;
+        }
+
+        let attempts = 0;
+        const maxAttempts = 40; // ~40 帧，约 650ms-700ms
+        const tolerance = 8; // 容差像素
+
+        const tryScroll = () => {
+          // 尝试滚动
+          window.scrollTo(0, targetPosition);
+          document.documentElement.scrollTop = targetPosition;
+          document.body.scrollTop = targetPosition;
+
+          // 若内容高度不足，先不判失败，等待高度增长
+          const _maxTop = getMaxScrollTop();
+          const current = window.scrollY;
+          // periodic attempts to restore scroll
+
+          if (Math.abs(current - targetPosition) <= tolerance) {
+            setPendingScrollPosition(null);
+            return;
+          }
+
+          attempts += 1;
+          if (attempts >= maxAttempts) {
+            // 再做一次兜底：内容高度增长后再试一次
+            setTimeout(() => {
+              window.scrollTo(0, Math.min(targetPosition, getMaxScrollTop()));
+              setPendingScrollPosition(null);
+            }, 120);
+            return;
+          }
+
+          // 使用 rAF 等待下一帧，避免与布局抖动冲突
+          requestAnimationFrame(tryScroll);
+        };
+
+        // 若页面仍在加载图片/资源，等到 load 再开始重试序列
+        if (document.readyState !== 'complete') {
+          const onLoad = () => {
+            window.removeEventListener('load', onLoad);
+            requestAnimationFrame(tryScroll);
+          };
+          window.addEventListener('load', onLoad);
+          // 同时也开始一次尝试，避免等太久
+          requestAnimationFrame(tryScroll);
+        } else {
+          requestAnimationFrame(tryScroll);
+        }
+      };
+
+      // 如果页面内容还没有完全加载，等待更长时间
+      const maxWaitTime = 3500; // 增加等待时间，给图片和布局更充分时间
+      const checkInterval = 100; // 每100ms检查一次
+      let waitTime = 0;
+
+      const waitForContent = () => {
+        // 检查页面是否有足够的内容可以滚动，或者已经等待了足够长的时间
+        const hasScrollableContent =
+          document.body.scrollHeight > window.innerHeight;
+        const hasSearchResults = showResults && searchResults.length > 0;
+        const shouldProceed =
+          hasScrollableContent || hasSearchResults || waitTime >= maxWaitTime;
+
+        if (shouldProceed) {
+          restoreScroll();
+        } else {
+          waitTime += checkInterval;
+          setTimeout(waitForContent, checkInterval);
+        }
+      };
+
+      waitForContent();
+    }
+  }, [pendingScrollPosition, showResults, searchResults.length]);
+
+  // 处理 bfcache（返回缓存）场景，确保从播放页返回时也能恢复
+  useEffect(() => {
+    const restoreFromStorage = () => {
+      try {
+        const saved = localStorage.getItem('searchPageState');
+        if (!saved) return;
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.scrollPosition > 0) {
+          setPendingScrollPosition(parsed.scrollPosition);
+        }
+      } catch (e) {
+        /* ignore */
+      }
+    };
+    const onPageShow = () => restoreFromStorage();
+    const onPopState = () => restoreFromStorage();
+    window.addEventListener('pageshow', onPageShow);
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      window.removeEventListener('pageshow', onPageShow);
+      window.removeEventListener('popstate', onPopState);
+    };
+  }, []);
+
   // 监听页面可见性变化，确保从详情页返回时能正确恢复状态
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -626,6 +859,14 @@ function SearchPageClient() {
           setViewMode(savedState.viewMode || 'agg');
           setSelectedResources(savedState.selectedResources || []);
           setHasRestoredState(true);
+
+          // 恢复滚动位置
+          if (
+            savedState.scrollPosition !== undefined &&
+            savedState.scrollPosition > 0
+          ) {
+            setPendingScrollPosition(savedState.scrollPosition);
+          }
         }
       }
     };
