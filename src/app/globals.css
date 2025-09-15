@@ -101,6 +101,14 @@ html:not(.dark) body {
   html:not(.dark) body {
     background-attachment: scroll;
   }
+  /* iOS: 放宽默认 overscroll 限制与触摸动作，避免返回后无法滚动 */
+  html,
+  body {
+    height: auto;
+    min-height: 100%;
+    overscroll-behavior-y: auto;
+    touch-action: pan-y manipulation;
+  }
 }
 
 /* Allow vertical panning for iOS Safari */

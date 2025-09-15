@@ -867,9 +867,35 @@ function SearchPageClient() {
 
   // 处理 bfcache（返回缓存）场景，确保从播放页返回时也能恢复
   useEffect(() => {
+    const unlockIOSInteraction = () => {
+      try {
+        const htmlEl = document.documentElement as HTMLElement;
+        const bodyEl = document.body as HTMLElement;
+        htmlEl.style.setProperty('overflow-y', 'auto', 'important');
+        bodyEl.style.setProperty('overflow-y', 'auto', 'important');
+        htmlEl.style.setProperty(
+          '-webkit-overflow-scrolling',
+          'touch',
+          'important'
+        );
+        bodyEl.style.setProperty(
+          '-webkit-overflow-scrolling',
+          'touch',
+          'important'
+        );
+        htmlEl.style.pointerEvents = 'auto';
+        bodyEl.style.pointerEvents = 'auto';
+      } catch (_) {
+        /* ignore */
+      }
+    };
+
     const restoreFromStorage = (e?: PageTransitionEvent) => {
       if (e && 'persisted' in e && (e as any).persisted) {
         isBFCacheRef.current = true;
+        // iOS 返回缓存恢复后，强制解锁交互与滚动
+        requestAnimationFrame(unlockIOSInteraction);
+        setTimeout(unlockIOSInteraction, 0);
         return;
       }
       try {
