@@ -871,8 +871,24 @@ function SearchPageClient() {
       try {
         const htmlEl = document.documentElement as HTMLElement;
         const bodyEl = document.body as HTMLElement;
+        // 解除可能的锁定样式并强制重算
+        htmlEl.style.removeProperty('overflow');
+        bodyEl.style.removeProperty('overflow');
         htmlEl.style.setProperty('overflow-y', 'auto', 'important');
         bodyEl.style.setProperty('overflow-y', 'auto', 'important');
+        htmlEl.style.removeProperty('position');
+        bodyEl.style.removeProperty('position');
+        htmlEl.style.setProperty(
+          '-webkit-overflow-scrolling',
+          'auto',
+          'important'
+        );
+        bodyEl.style.setProperty(
+          '-webkit-overflow-scrolling',
+          'auto',
+          'important'
+        );
+        void bodyEl.offsetHeight; // 强制 reflow
         htmlEl.style.setProperty(
           '-webkit-overflow-scrolling',
           'touch',
@@ -885,13 +901,21 @@ function SearchPageClient() {
         );
         htmlEl.style.pointerEvents = 'auto';
         bodyEl.style.pointerEvents = 'auto';
+
+        if (document.body.scrollHeight <= window.innerHeight) {
+          const prev = bodyEl.style.minHeight;
+          bodyEl.style.minHeight = '101vh';
+          setTimeout(() => {
+            bodyEl.style.minHeight = prev || '';
+          }, 60);
+        }
       } catch (_) {
         /* ignore */
       }
     };
 
     const restoreFromStorage = (e?: PageTransitionEvent) => {
-      if (e && 'persisted' in e && (e as any).persisted) {
+      if (isIOS && e && 'persisted' in e && (e as any).persisted) {
         isBFCacheRef.current = true;
         // iOS 返回缓存恢复后，强制解锁交互与滚动
         requestAnimationFrame(unlockIOSInteraction);
@@ -909,8 +933,14 @@ function SearchPageClient() {
         /* ignore */
       }
     };
-    const onPageShow = (event: Event) =>
+    const onPageShow = (event: Event) => {
+      if (isIOS) {
+        // 即便不是 persisted，也尝试解锁，兼容部分内置 WebView
+        requestAnimationFrame(unlockIOSInteraction);
+        setTimeout(unlockIOSInteraction, 0);
+      }
       restoreFromStorage(event as PageTransitionEvent);
+    };
     const onPopState = () => restoreFromStorage();
     window.addEventListener('pageshow', onPageShow);
     window.addEventListener('popstate', onPopState);
