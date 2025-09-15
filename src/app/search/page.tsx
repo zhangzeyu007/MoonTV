@@ -713,7 +713,6 @@ function SearchPageClient() {
       !('scrollRestoration' in window.history)
     )
       return;
-    if (isIOS) return;
     const prev = window.history.scrollRestoration;
     try {
       window.history.scrollRestoration = 'manual';
@@ -760,7 +759,6 @@ function SearchPageClient() {
   // 统一的滚动位置恢复逻辑（使用 useLayoutEffect 提前于绘制）
   useLayoutEffect(() => {
     if (pendingScrollPosition !== null) {
-      if (isBFCacheRef.current) return;
       const restoreScroll = () => {
         const scrollingElement =
           (typeof document !== 'undefined' && document.scrollingElement) ||
@@ -915,23 +913,31 @@ function SearchPageClient() {
     };
 
     const restoreFromStorage = (e?: PageTransitionEvent) => {
+      const doRestore = () => {
+        try {
+          const saved = localStorage.getItem('searchPageState');
+          if (!saved) return;
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.scrollPosition > 0) {
+            setPendingScrollPosition(parsed.scrollPosition);
+          }
+        } catch (e) {
+          /* ignore */
+        }
+      };
+
       if (isIOS && e && 'persisted' in e && (e as any).persisted) {
-        isBFCacheRef.current = true;
-        // iOS 返回缓存恢复后，强制解锁交互与滚动
-        requestAnimationFrame(unlockIOSInteraction);
-        setTimeout(unlockIOSInteraction, 0);
+        // iOS 返回缓存：先解锁，再恢复滚动位置
+        isBFCacheRef.current = false;
+        requestAnimationFrame(() => {
+          unlockIOSInteraction();
+          requestAnimationFrame(doRestore);
+        });
+        setTimeout(doRestore, 0);
         return;
       }
-      try {
-        const saved = localStorage.getItem('searchPageState');
-        if (!saved) return;
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.scrollPosition > 0) {
-          setPendingScrollPosition(parsed.scrollPosition);
-        }
-      } catch (e) {
-        /* ignore */
-      }
+
+      doRestore();
     };
     const onPageShow = (event: Event) => {
       if (isIOS) {
