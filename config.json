@@ -101,16 +101,6 @@
 	  "name": "CK资源",
 	  "detail": "https://ckzy.me"
 	},
-	"wujinzy": {
-	  "api": "https://api.wujinapi.com/api.php/provide/vod",
-	  "name": "无尽资源2",
-	  "detail": "https://api.wujinapi.com"
-	},
-	"hongniuzy": {
-	  "api": "https://www.hongniuzy2.com/api.php/provide/vod",
-	  "name": "红牛资源",
-	  "detail": "https://www.hongniuzy2.com"
-	} ,
     "AV5": {
       "api": "https://api.bwzyz.com/api.php/provide/vod",
       "name": "百万资源",
