@@ -82,11 +82,35 @@ function SearchPageClient() {
     (y: number) => {
       if (typeof window === 'undefined') return;
       const el = getScrollingElement();
+      // iOS: 临时禁用平滑滚动以避免 UA/CSS 干扰
+      const htmlEl =
+        typeof document !== 'undefined'
+          ? (document.documentElement as HTMLElement)
+          : null;
+      let prevBehavior: string | null = null;
+      try {
+        if (isIOS && htmlEl) {
+          prevBehavior = htmlEl.style.scrollBehavior || null;
+          htmlEl.style.scrollBehavior = 'auto';
+        }
+      } catch (_) {
+        /* ignore */
+      }
       if (el) el.scrollTop = y;
       // 兜底一次，避免某些 WebKit 场景忽略 scrollTop 赋值
       window.scrollTo(0, y);
+      // 还原 scroll-behavior 设置
+      try {
+        if (isIOS && htmlEl) {
+          if (prevBehavior === null)
+            htmlEl.style.removeProperty('scroll-behavior');
+          else htmlEl.style.scrollBehavior = prevBehavior;
+        }
+      } catch (_) {
+        /* ignore */
+      }
     },
-    [getScrollingElement]
+    [getScrollingElement, isIOS]
   );
 
   // 获取默认聚合设置：只读取用户本地设置，默认为 true
@@ -780,6 +804,35 @@ function SearchPageClient() {
             setPendingScrollPosition(null);
             return;
           }
+          // 尝试移除可能阻碍滚动的焦点（例如输入框）
+          try {
+            if (document.activeElement instanceof HTMLElement) {
+              document.activeElement.blur();
+            }
+          } catch (_) {
+            /* ignore */
+          }
+          // 先尝试根据锚点进行初步定位，然后再精确校正到像素
+          try {
+            const saved = localStorage.getItem('searchPageState');
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              if (parsed && parsed.anchorKey) {
+                const el = document.querySelector(
+                  `[data-search-key="${parsed.anchorKey}"]`
+                ) as HTMLElement | null;
+                if (el) {
+                  try {
+                    el.scrollIntoView({ block: 'start', behavior: 'auto' });
+                  } catch (_) {
+                    el.scrollIntoView({ block: 'start' as any });
+                  }
+                }
+              }
+            }
+          } catch (_) {
+            /* ignore */
+          }
           let attempts = 0;
           const maxAttempts = 80;
           const tolerance = 8;
@@ -1013,11 +1066,7 @@ function SearchPageClient() {
           const saved = localStorage.getItem('searchPageState');
           if (!saved) return;
           const parsed = JSON.parse(saved);
-          if (parsed && parsed.scrollPosition > 0) {
-            setPendingScrollPosition(parsed.scrollPosition);
-            // iOS 直接强制多帧复位，避免某些 WebKit 场景 pending 未生效
-            if (isIOS) forceRestoreScroll(parsed.scrollPosition);
-          }
+          // 先根据锚点进行初步定位
           if (parsed && parsed.anchorKey) {
             const el = document.querySelector(
               `[data-search-key="${parsed.anchorKey}"]`
@@ -1032,6 +1081,11 @@ function SearchPageClient() {
                 el.scrollIntoView({ block: 'start' });
               }
             }
+          }
+          // 再精确复位到保存的像素位置
+          if (parsed && parsed.scrollPosition > 0) {
+            setPendingScrollPosition(parsed.scrollPosition);
+            if (isIOS) forceRestoreScroll(parsed.scrollPosition);
           }
         } catch (e) {
           /* ignore */
@@ -1057,10 +1111,12 @@ function SearchPageClient() {
         requestAnimationFrame(unlockIOSInteraction);
         setTimeout(unlockIOSInteraction, 0);
       }
-      // 将恢复放到更靠后时机
+      // 将恢复放到更靠后时机，并额外增加延迟重试
       requestAnimationFrame(() =>
         setTimeout(() => restoreFromStorage(event as PageTransitionEvent), 0)
       );
+      setTimeout(() => restoreFromStorage(event as PageTransitionEvent), 800);
+      setTimeout(() => restoreFromStorage(event as PageTransitionEvent), 1600);
       // 若由左上返回触发，则在稍后再尝试恢复，增加命中概率
       try {
         const trigger = localStorage.getItem('searchReturnTrigger');
