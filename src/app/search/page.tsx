@@ -59,6 +59,36 @@ function SearchPageClient() {
   // 防抖定时器ref，用于实时搜索
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // 统一滚动工具：在 iOS 上优先使用 scrollingElement
+  const getScrollingElement = useCallback(() => {
+    if (typeof document === 'undefined')
+      return null as unknown as HTMLElement | null;
+    return (
+      (document.scrollingElement as HTMLElement | null) ||
+      (document.documentElement as HTMLElement | null) ||
+      (document.body as HTMLElement | null)
+    );
+  }, []);
+
+  const getScrollTop = useCallback(() => {
+    if (typeof window === 'undefined') return 0;
+    const el = getScrollingElement();
+    if (el && typeof (el as any).scrollTop === 'number')
+      return el.scrollTop || 0;
+    return typeof window.scrollY === 'number' ? window.scrollY : 0;
+  }, [getScrollingElement]);
+
+  const setScrollTop = useCallback(
+    (y: number) => {
+      if (typeof window === 'undefined') return;
+      const el = getScrollingElement();
+      if (el) el.scrollTop = y;
+      // 兜底一次，避免某些 WebKit 场景忽略 scrollTop 赋值
+      window.scrollTo(0, y);
+    },
+    [getScrollingElement]
+  );
+
   // 获取默认聚合设置：只读取用户本地设置，默认为 true
   const getDefaultAggregate = useCallback(() => {
     if (typeof window !== 'undefined') {
@@ -86,25 +116,7 @@ function SearchPageClient() {
   const saveSearchState = useCallback(() => {
     if (typeof window === 'undefined') return;
 
-    const scrollingElement =
-      (typeof document !== 'undefined' && document.scrollingElement) ||
-      (typeof document !== 'undefined' &&
-        (document.documentElement || (document.body as HTMLElement))) ||
-      null;
-    const currentScrollY = (() => {
-      if (typeof window === 'undefined') return 0;
-      if (scrollingElement) return scrollingElement.scrollTop || 0;
-      const y1 = typeof window.scrollY === 'number' ? window.scrollY : 0;
-      const y2 =
-        typeof document !== 'undefined' && document.documentElement
-          ? document.documentElement.scrollTop
-          : 0;
-      const y3 =
-        typeof document !== 'undefined' && document.body
-          ? (document.body as HTMLElement).scrollTop
-          : 0;
-      return Math.max(y1, y2, y3, 0);
-    })();
+    const currentScrollY = getScrollTop();
 
     const searchState = {
       query: searchQuery,
@@ -121,7 +133,14 @@ function SearchPageClient() {
     } catch (error) {
       // 静默处理错误
     }
-  }, [searchQuery, searchResults, showResults, viewMode, selectedResources]);
+  }, [
+    searchQuery,
+    searchResults,
+    showResults,
+    viewMode,
+    selectedResources,
+    getScrollTop,
+  ]);
 
   // 保存当前滚动位置
   const saveScrollPosition = useCallback(() => {
@@ -131,22 +150,7 @@ function SearchPageClient() {
       const currentState = localStorage.getItem('searchPageState');
       if (currentState) {
         const parsedState = JSON.parse(currentState);
-        const scrollingElement =
-          (typeof document !== 'undefined' && document.scrollingElement) ||
-          (typeof document !== 'undefined' &&
-            (document.documentElement || (document.body as HTMLElement))) ||
-          null;
-        const y1 = typeof window.scrollY === 'number' ? window.scrollY : 0;
-        const y2 = scrollingElement ? scrollingElement.scrollTop : 0;
-        const y3 =
-          typeof document !== 'undefined' && document.documentElement
-            ? document.documentElement.scrollTop
-            : 0;
-        const y4 =
-          typeof document !== 'undefined' && document.body
-            ? (document.body as HTMLElement).scrollTop
-            : 0;
-        const currentScroll = Math.max(y1, y2, y3, y4, 0);
+        const currentScroll = getScrollTop();
         parsedState.scrollPosition = currentScroll;
         parsedState.timestamp = Date.now();
         localStorage.setItem('searchPageState', JSON.stringify(parsedState));
@@ -154,7 +158,7 @@ function SearchPageClient() {
     } catch (error) {
       // 静默处理错误
     }
-  }, []);
+  }, [getScrollTop]);
 
   // 在用户滚动时实时保存滚动位置（rAF 节流）
   useEffect(() => {
@@ -759,155 +763,198 @@ function SearchPageClient() {
   // 统一的滚动位置恢复逻辑（使用 useLayoutEffect 提前于绘制）
   useLayoutEffect(() => {
     if (pendingScrollPosition !== null) {
-      const restoreScroll = () => {
-        const scrollingElement =
-          (typeof document !== 'undefined' && document.scrollingElement) ||
-          (typeof document !== 'undefined' &&
-            (document.documentElement || (document.body as HTMLElement))) ||
-          null;
-        const getMaxScrollTop = () =>
-          Math.max(
-            document.body.scrollHeight - window.innerHeight,
-            document.documentElement.scrollHeight - window.innerHeight,
-            0
+      // iOS 使用增强版恢复；PC 端恢复原有逻辑，避免行为变化
+      if (isIOS) {
+        const restoreScrollIOS = () => {
+          const getMaxScrollTop = () =>
+            Math.max(
+              document.body.scrollHeight - window.innerHeight,
+              document.documentElement.scrollHeight - window.innerHeight,
+              0
+            );
+          const targetPosition = Math.max(
+            0,
+            Math.min(pendingScrollPosition, getMaxScrollTop())
           );
-
-        const targetPosition = Math.max(
-          0,
-          Math.min(pendingScrollPosition, getMaxScrollTop())
-        );
-        // start restore scroll
-
-        if (targetPosition === 0) {
-          setPendingScrollPosition(null);
-          return;
-        }
-
-        let attempts = 0;
-        const maxAttempts = 40; // ~40 帧，约 650ms-700ms
-        const tolerance = 8; // 容差像素
-
-        const tryScroll = () => {
-          // 尝试滚动（优先写入 scrollingElement，以兼容 iOS Safari）
-          if (scrollingElement) {
-            scrollingElement.scrollTop = targetPosition;
-          }
-          window.scrollTo(0, targetPosition);
-          if (document.documentElement)
-            document.documentElement.scrollTop = targetPosition;
-          if (document.body)
-            (document.body as HTMLElement).scrollTop = targetPosition;
-
-          // 若内容高度不足，先不判失败，等待高度增长
-          const _maxTop = getMaxScrollTop();
-          const current = scrollingElement
-            ? scrollingElement.scrollTop
-            : window.scrollY;
-          // periodic attempts to restore scroll
-
-          if (Math.abs(current - targetPosition) <= tolerance) {
+          if (targetPosition === 0) {
             setPendingScrollPosition(null);
             return;
           }
-
-          attempts += 1;
-          if (attempts >= maxAttempts) {
-            // 再做一次兜底：内容高度增长后再试一次
-            setTimeout(() => {
-              window.scrollTo(0, Math.min(targetPosition, getMaxScrollTop()));
+          let attempts = 0;
+          const maxAttempts = 80;
+          const tolerance = 8;
+          const tryScroll = () => {
+            setScrollTop(targetPosition);
+            const current = getScrollTop();
+            if (Math.abs(current - targetPosition) <= tolerance) {
               setPendingScrollPosition(null);
-            }, 120);
-            return;
-          }
-
-          // 使用 rAF 等待下一帧，避免与布局抖动冲突
-          requestAnimationFrame(tryScroll);
-        };
-
-        // 若页面仍在加载图片/资源，等到 load 再开始重试序列
-        if (document.readyState !== 'complete') {
-          const onLoad = () => {
-            window.removeEventListener('load', onLoad);
+              return;
+            }
+            attempts += 1;
+            if (attempts >= maxAttempts) {
+              setTimeout(() => {
+                window.scrollTo(0, Math.min(targetPosition, getMaxScrollTop()));
+                setPendingScrollPosition(null);
+              }, 120);
+              return;
+            }
             requestAnimationFrame(tryScroll);
           };
-          window.addEventListener('load', onLoad);
-          // 同时也开始一次尝试，避免等太久
-          requestAnimationFrame(tryScroll);
-        } else {
-          requestAnimationFrame(tryScroll);
-        }
-      };
-
-      // 如果页面内容还没有完全加载，等待更长时间
-      const maxWaitTime = 3500; // 增加等待时间，给图片和布局更充分时间
-      const checkInterval = 100; // 每100ms检查一次
-      let waitTime = 0;
-
-      const waitForContent = () => {
-        // 检查页面是否有足够的内容可以滚动，或者已经等待了足够长的时间
-        const hasScrollableContent =
-          document.body.scrollHeight > window.innerHeight;
-        const hasSearchResults = showResults && searchResults.length > 0;
-        const shouldProceed =
-          hasScrollableContent || hasSearchResults || waitTime >= maxWaitTime;
-
-        if (shouldProceed) {
-          restoreScroll();
-        } else {
-          waitTime += checkInterval;
-          setTimeout(waitForContent, checkInterval);
-        }
-      };
-
-      waitForContent();
+          if (document.readyState !== 'complete') {
+            const onLoad = () => {
+              window.removeEventListener('load', onLoad);
+              requestAnimationFrame(tryScroll);
+            };
+            window.addEventListener('load', onLoad);
+            requestAnimationFrame(tryScroll);
+          } else {
+            requestAnimationFrame(tryScroll);
+          }
+        };
+        const maxWaitTime = 3500;
+        const checkInterval = 100;
+        let waitTime = 0;
+        const waitForContent = () => {
+          const hasScrollableContent =
+            document.body.scrollHeight > window.innerHeight;
+          const hasSearchResults = showResults && searchResults.length > 0;
+          const shouldProceed =
+            hasScrollableContent || hasSearchResults || waitTime >= maxWaitTime;
+          if (shouldProceed) {
+            restoreScrollIOS();
+          } else {
+            waitTime += checkInterval;
+            setTimeout(waitForContent, checkInterval);
+          }
+        };
+        waitForContent();
+      } else {
+        // 非 iOS：恢复为原有逻辑
+        const restoreScrollPC = () => {
+          const scrollingElement =
+            (typeof document !== 'undefined' && document.scrollingElement) ||
+            (typeof document !== 'undefined' &&
+              (document.documentElement || (document.body as HTMLElement))) ||
+            null;
+          const getMaxScrollTop = () =>
+            Math.max(
+              document.body.scrollHeight - window.innerHeight,
+              document.documentElement.scrollHeight - window.innerHeight,
+              0
+            );
+          const targetPosition = Math.max(
+            0,
+            Math.min(pendingScrollPosition, getMaxScrollTop())
+          );
+          if (targetPosition === 0) {
+            setPendingScrollPosition(null);
+            return;
+          }
+          let attempts = 0;
+          const maxAttempts = 40; // 保持原值
+          const tolerance = 8;
+          const tryScroll = () => {
+            if (scrollingElement) {
+              scrollingElement.scrollTop = targetPosition;
+            }
+            window.scrollTo(0, targetPosition);
+            if (document.documentElement)
+              document.documentElement.scrollTop = targetPosition;
+            if (document.body)
+              (document.body as HTMLElement).scrollTop = targetPosition;
+            const current = scrollingElement
+              ? scrollingElement.scrollTop
+              : window.scrollY;
+            if (Math.abs(current - targetPosition) <= tolerance) {
+              setPendingScrollPosition(null);
+              return;
+            }
+            attempts += 1;
+            if (attempts >= maxAttempts) {
+              setTimeout(() => {
+                window.scrollTo(0, Math.min(targetPosition, getMaxScrollTop()));
+                setPendingScrollPosition(null);
+              }, 120);
+              return;
+            }
+            requestAnimationFrame(tryScroll);
+          };
+          if (document.readyState !== 'complete') {
+            const onLoad = () => {
+              window.removeEventListener('load', onLoad);
+              requestAnimationFrame(tryScroll);
+            };
+            window.addEventListener('load', onLoad);
+            requestAnimationFrame(tryScroll);
+          } else {
+            requestAnimationFrame(tryScroll);
+          }
+        };
+        const maxWaitTime = 3500;
+        const checkInterval = 100;
+        let waitTime = 0;
+        const waitForContent = () => {
+          const hasScrollableContent =
+            document.body.scrollHeight > window.innerHeight;
+          const hasSearchResults = showResults && searchResults.length > 0;
+          const shouldProceed =
+            hasScrollableContent || hasSearchResults || waitTime >= maxWaitTime;
+          if (shouldProceed) {
+            restoreScrollPC();
+          } else {
+            waitTime += checkInterval;
+            setTimeout(waitForContent, checkInterval);
+          }
+        };
+        waitForContent();
+      }
     }
-  }, [pendingScrollPosition, showResults, searchResults.length]);
+  }, [
+    pendingScrollPosition,
+    showResults,
+    searchResults.length,
+    isIOS,
+    setScrollTop,
+    getScrollTop,
+  ]);
 
   // 在组件作用域提供可复用的强制滚动恢复函数，供多个 effect 使用
-  const forceRestoreScroll = useCallback((target: number) => {
-    if (typeof window === 'undefined' || typeof document === 'undefined')
-      return;
-    const maxAttempts = 80; // ~80帧，约1.3s
-    let attempts = 0;
-    const tolerance = 8;
-    const getMaxScrollTop = () =>
-      Math.max(
-        document.body.scrollHeight - window.innerHeight,
-        document.documentElement.scrollHeight - window.innerHeight,
-        0
-      );
-    const trySet = () => {
-      const scrollingElement =
-        document.scrollingElement ||
-        document.documentElement ||
-        (document.body as HTMLElement);
-      const clamped = Math.max(0, Math.min(target, getMaxScrollTop()));
-      if (scrollingElement) scrollingElement.scrollTop = clamped;
-      window.scrollTo(0, clamped);
-      if (document.documentElement)
-        document.documentElement.scrollTop = clamped;
-      if (document.body) (document.body as HTMLElement).scrollTop = clamped;
-
-      const current = scrollingElement
-        ? scrollingElement.scrollTop
-        : window.scrollY;
-      if (Math.abs(current - clamped) <= tolerance) return;
-      attempts += 1;
-      if (attempts >= maxAttempts) return;
-      requestAnimationFrame(trySet);
-    };
-
-    if (document.readyState !== 'complete') {
-      const onLoad = () => {
-        window.removeEventListener('load', onLoad);
+  const forceRestoreScroll = useCallback(
+    (target: number) => {
+      if (typeof window === 'undefined' || typeof document === 'undefined')
+        return;
+      const maxAttempts = 120; // ~120帧，约1.9s
+      let attempts = 0;
+      const tolerance = 8;
+      const getMaxScrollTop = () =>
+        Math.max(
+          document.body.scrollHeight - window.innerHeight,
+          document.documentElement.scrollHeight - window.innerHeight,
+          0
+        );
+      const trySet = () => {
+        const clamped = Math.max(0, Math.min(target, getMaxScrollTop()));
+        setScrollTop(clamped);
+        const current = getScrollTop();
+        if (Math.abs(current - clamped) <= tolerance) return;
+        attempts += 1;
+        if (attempts >= maxAttempts) return;
         requestAnimationFrame(trySet);
       };
-      window.addEventListener('load', onLoad);
-      requestAnimationFrame(trySet);
-    } else {
-      requestAnimationFrame(trySet);
-    }
-  }, []);
+
+      if (document.readyState !== 'complete') {
+        const onLoad = () => {
+          window.removeEventListener('load', onLoad);
+          requestAnimationFrame(trySet);
+        };
+        window.addEventListener('load', onLoad);
+        requestAnimationFrame(trySet);
+      } else {
+        requestAnimationFrame(trySet);
+      }
+    },
+    [setScrollTop, getScrollTop]
+  );
 
   // 处理 bfcache（返回缓存）场景，确保从播放页返回时也能恢复
   useEffect(() => {
@@ -1010,22 +1057,19 @@ function SearchPageClient() {
         requestAnimationFrame(unlockIOSInteraction);
         setTimeout(unlockIOSInteraction, 0);
       }
-      restoreFromStorage(event as PageTransitionEvent);
+      // 将恢复放到更靠后时机
+      requestAnimationFrame(() =>
+        setTimeout(() => restoreFromStorage(event as PageTransitionEvent), 0)
+      );
       // 若由左上返回触发，则在稍后再尝试恢复，增加命中概率
       try {
         const trigger = localStorage.getItem('searchReturnTrigger');
         if (trigger) {
-          setTimeout(
-            () => restoreFromStorage(event as PageTransitionEvent),
-            120
-          );
-          setTimeout(
-            () => restoreFromStorage(event as PageTransitionEvent),
-            300
-          );
-          setTimeout(
-            () => restoreFromStorage(event as PageTransitionEvent),
-            600
+          [120, 300, 600, 1000, 1500].forEach((t) =>
+            setTimeout(
+              () => restoreFromStorage(event as PageTransitionEvent),
+              t
+            )
           );
           localStorage.removeItem('searchReturnTrigger');
         }
@@ -1038,10 +1082,10 @@ function SearchPageClient() {
         requestAnimationFrame(unlockIOSInteraction);
         setTimeout(unlockIOSInteraction, 0);
       }
-      restoreFromStorage();
-      setTimeout(() => restoreFromStorage(), 120);
-      setTimeout(() => restoreFromStorage(), 300);
-      setTimeout(() => restoreFromStorage(), 600);
+      requestAnimationFrame(() => setTimeout(() => restoreFromStorage(), 0));
+      [120, 300, 600, 1000, 1500].forEach((t) =>
+        setTimeout(() => restoreFromStorage(), t)
+      );
     };
     window.addEventListener('pageshow', onPageShow);
     window.addEventListener('popstate', onPopState);
