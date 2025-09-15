@@ -1014,11 +1014,15 @@ function SearchPageClient() {
         if (trigger) {
           setTimeout(
             () => restoreFromStorage(event as PageTransitionEvent),
-            200
+            120
           );
           setTimeout(
             () => restoreFromStorage(event as PageTransitionEvent),
-            500
+            300
+          );
+          setTimeout(
+            () => restoreFromStorage(event as PageTransitionEvent),
+            600
           );
           localStorage.removeItem('searchReturnTrigger');
         }
@@ -1026,7 +1030,16 @@ function SearchPageClient() {
         /* ignore */
       }
     };
-    const onPopState = () => restoreFromStorage();
+    const onPopState = () => {
+      if (isIOS) {
+        requestAnimationFrame(unlockIOSInteraction);
+        setTimeout(unlockIOSInteraction, 0);
+      }
+      restoreFromStorage();
+      setTimeout(() => restoreFromStorage(), 120);
+      setTimeout(() => restoreFromStorage(), 300);
+      setTimeout(() => restoreFromStorage(), 600);
+    };
     window.addEventListener('pageshow', onPageShow);
     window.addEventListener('popstate', onPopState);
     return () => {
@@ -1069,6 +1082,38 @@ function SearchPageClient() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isInitialized, hasRestoredState, restoreSearchState]);
+
+  // iOS: 页面再次可见时再尝试一次锚点 + 强制滚动的恢复（额外兜底，不影响 PC）
+  useEffect(() => {
+    const attemptOnVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const saved = localStorage.getItem('searchPageState');
+        if (!saved) return;
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.anchorKey) {
+          const el = document.querySelector(
+            `[data-search-key="${parsed.anchorKey}"]`
+          ) as HTMLElement | null;
+          if (el) {
+            try {
+              el.scrollIntoView({ block: 'start', behavior: 'auto' });
+            } catch (_) {
+              el.scrollIntoView({ block: 'start' as any });
+            }
+          }
+        }
+        if (parsed && parsed.scrollPosition > 0) {
+          forceRestoreScroll(parsed.scrollPosition);
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    };
+    document.addEventListener('visibilitychange', attemptOnVisible);
+    return () =>
+      document.removeEventListener('visibilitychange', attemptOnVisible);
+  }, []);
 
   useEffect(() => {
     // 当搜索参数变化时更新搜索状态
