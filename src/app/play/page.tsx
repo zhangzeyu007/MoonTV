@@ -628,7 +628,7 @@ function PlayPageClient() {
     initAll();
   }, []);
 
-  // 在离开播放页前，将返回锚点与当前滚动位置写入搜索页状态，提升 iOS 稳定性
+  // 在离开播放页前，仅写入返回锚点，避免覆盖搜索页的滚动位置
   useEffect(() => {
     const markReturn = () => {
       try {
@@ -642,36 +642,24 @@ function PlayPageClient() {
           const parsed = saved ? JSON.parse(saved) : {};
           parsed.anchorKey = returnAnchorRef.current;
 
-          // 避免滚动丢失：在离开前强制读取一次滚动位置
-          const se = (document.scrollingElement ||
-            document.documentElement ||
-            (document.body as HTMLElement)) as HTMLElement;
-          const y = se
-            ? se.scrollTop
-            : typeof window !== 'undefined'
-            ? window.scrollY
-            : 0;
-          parsed.scrollPosition = typeof y === 'number' ? y : 0;
+          // 不写入 scrollPosition，避免覆盖搜索页点击时保存的准确滚动
           parsed.timestamp = Date.now();
 
-          console.log('[播放页离开] 滚动位置信息:', {
-            anchorKey: returnAnchorRef.current,
-            scrollPosition: parsed.scrollPosition,
-            scrollingElementScrollTop: se?.scrollTop || 0,
-            windowScrollY:
-              typeof window.scrollY === 'number' ? window.scrollY : 'undefined',
-            documentScrollTop: document.documentElement?.scrollTop || 0,
-            bodyScrollTop: document.body?.scrollTop || 0,
+          console.log('[播放页离开] 将仅写入返回锚点，不覆盖滚动位置:', {
+            anchorKey: parsed.anchorKey,
+            timestamp: parsed.timestamp,
           });
 
           localStorage.setItem('searchPageState', JSON.stringify(parsed));
           localStorage.setItem('searchReturnTrigger', String(Date.now()));
 
-          console.log('[播放页离开] localStorage已更新:', {
-            anchorKey: parsed.anchorKey,
-            scrollPosition: parsed.scrollPosition,
-            timestamp: parsed.timestamp,
-          });
+          console.log(
+            '[播放页离开] localStorage已更新(未写入scrollPosition):',
+            {
+              anchorKey: parsed.anchorKey,
+              timestamp: parsed.timestamp,
+            }
+          );
         } else {
           console.log('[播放页离开] 没有返回锚点，跳过保存');
         }

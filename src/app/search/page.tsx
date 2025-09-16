@@ -1267,34 +1267,35 @@ function SearchPageClient() {
           }
 
           // 先尝试锚点定位
+          let didAnchorScroll = false;
           try {
             const saved = localStorage.getItem('searchPageState');
             const parsed = saved ? JSON.parse(saved) : null;
             if (parsed?.anchorKey) {
-              // console.log('[滚动位置恢复] 尝试锚点定位:', parsed.anchorKey);
               const anchorEl = document.querySelector(
                 `[data-search-key="${parsed.anchorKey}"]`
               ) as HTMLElement | null;
               if (anchorEl) {
                 anchorEl.scrollIntoView({ block: 'start', behavior: 'auto' });
-                // console.log('[滚动位置恢复] 锚点定位完成');
-              } else {
-                // console.log('[滚动位置恢复] 锚点元素未找到');
+                didAnchorScroll = true;
               }
             }
-          } catch (error) {
-            // console.error('[滚动位置恢复] 锚点定位失败:', error);
+          } catch (_) {
+            /* ignore */
           }
 
-          // 精确滚动到目标位置 - 使用多种方法确保成功
-          window.scrollTo({ top: targetPosition, behavior: 'auto' });
+          // 如果已通过锚点成功定位，则跳过数值滚动，避免覆盖锚点定位结果
+          if (!didAnchorScroll) {
+            // 精确滚动到目标位置 - 使用多种方法确保成功
+            window.scrollTo({ top: targetPosition, behavior: 'auto' });
 
-          // 同时设置其他滚动属性，确保iOS兼容性
-          if (document.body) {
-            document.body.scrollTop = targetPosition;
-          }
-          if (document.documentElement) {
-            document.documentElement.scrollTop = targetPosition;
+            // 同时设置其他滚动属性，确保iOS兼容性
+            if (document.body) {
+              document.body.scrollTop = targetPosition;
+            }
+            if (document.documentElement) {
+              document.documentElement.scrollTop = targetPosition;
+            }
           }
 
           console.log('[搜索页][滚动恢复][iOS] 已执行多种滚动方法', {
