@@ -202,8 +202,27 @@ export default function VideoCard({
     if (from === 'search' && typeof window !== 'undefined') {
       try {
         const currentState = localStorage.getItem('searchPageState');
-        if (currentState) {
-          const parsedState = JSON.parse(currentState);
+        const parsedState = currentState ? JSON.parse(currentState) : {};
+
+        // 检测iOS设备
+        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+        // 获取当前滚动位置，iOS端使用更可靠的方法
+        let currentScroll = 0;
+        if (isIOS) {
+          // iOS端优先使用window.scrollY
+          currentScroll =
+            typeof window.scrollY === 'number' ? window.scrollY : 0;
+          // 如果window.scrollY不可用，尝试其他方法
+          if (currentScroll === 0) {
+            const scrollingElement =
+              document.scrollingElement ||
+              document.documentElement ||
+              document.body;
+            currentScroll = scrollingElement ? scrollingElement.scrollTop : 0;
+          }
+        } else {
+          // PC端使用原有逻辑
           const scrollingElement =
             (typeof document !== 'undefined' && document.scrollingElement) ||
             (typeof document !== 'undefined' &&
@@ -219,48 +238,13 @@ export default function VideoCard({
             typeof document !== 'undefined' && document.body
               ? (document.body as HTMLElement).scrollTop
               : 0;
-          const currentScroll = Math.max(y1, y2, y3, y4, 0);
-          parsedState.scrollPosition = currentScroll;
-          if (anchorKey) parsedState.anchorKey = anchorKey;
-          parsedState.timestamp = Date.now();
-          localStorage.setItem('searchPageState', JSON.stringify(parsedState));
-        } else {
-          // 如果没有保存的状态，创建一个新的状态来保存滚动位置
-          const newState = {
-            query: '',
-            results: [],
-            showResults: false,
-            viewMode: 'agg',
-            selectedResources: [],
-            scrollPosition: (() => {
-              const scrollingElement =
-                (typeof document !== 'undefined' &&
-                  document.scrollingElement) ||
-                (typeof document !== 'undefined' &&
-                  (document.documentElement ||
-                    (document.body as HTMLElement))) ||
-                null;
-              const y1 =
-                typeof window !== 'undefined' &&
-                typeof window.scrollY === 'number'
-                  ? window.scrollY
-                  : 0;
-              const y2 = scrollingElement ? scrollingElement.scrollTop : 0;
-              const y3 =
-                typeof document !== 'undefined' && document.documentElement
-                  ? document.documentElement.scrollTop
-                  : 0;
-              const y4 =
-                typeof document !== 'undefined' && document.body
-                  ? (document.body as HTMLElement).scrollTop
-                  : 0;
-              return Math.max(y1, y2, y3, y4, 0);
-            })(),
-            anchorKey: anchorKey || null,
-            timestamp: Date.now(),
-          };
-          localStorage.setItem('searchPageState', JSON.stringify(newState));
+          currentScroll = Math.max(y1, y2, y3, y4, 0);
         }
+
+        parsedState.scrollPosition = currentScroll;
+        if (anchorKey) parsedState.anchorKey = anchorKey;
+        parsedState.timestamp = Date.now();
+        localStorage.setItem('searchPageState', JSON.stringify(parsedState));
       } catch (error) {
         // 静默处理错误
       }

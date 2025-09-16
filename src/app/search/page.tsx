@@ -118,110 +118,72 @@ function SearchPageClient() {
     [getScrollingElement, isIOS]
   );
 
-  // 等待锚点元素渲染后再进行定位与像素校正（iOS 可靠性增强）
-  const anchorThenScroll = useCallback(
+  // 简化的锚点定位和滚动函数
+  const _anchorThenScroll = useCallback(
     (
       anchorKey: string | null | undefined,
       target: number | null | undefined
     ) => {
       if (!anchorKey && !target) return;
-      const tryLocate = () =>
-        document.querySelector(
-          anchorKey ? `[data-search-key="${anchorKey}"]` : ''
-        ) as HTMLElement | null;
 
       const performScroll = () => {
         try {
-          // 先锚点（若有），后像素校正（若有）
-          const el = anchorKey ? tryLocate() : null;
-          if (el) {
-            try {
+          // 先锚点定位（如果有）
+          if (anchorKey) {
+            const el = document.querySelector(
+              `[data-search-key="${anchorKey}"]`
+            ) as HTMLElement | null;
+            if (el) {
               el.scrollIntoView({ block: 'start', behavior: 'auto' });
-            } catch (_) {
-              el.scrollIntoView({ block: 'start' as any });
             }
           }
+
+          // 再精确滚动到目标位置（如果有）
           if (typeof target === 'number' && target > 0) {
-            setScrollTop(target);
+            if (isIOS) {
+              // iOS使用window.scrollTo
+              window.scrollTo({ top: target, behavior: 'auto' });
+            } else {
+              // PC端使用原有逻辑
+              setScrollTop(target);
+            }
           }
         } catch (_) {
           /* ignore */
         }
       };
 
-      // 如果元素已存在，直接定位+校正，并安排几次滞后重试
-      const elNow = anchorKey ? tryLocate() : null;
-      if (elNow || (!anchorKey && typeof target === 'number')) {
-        performScroll();
-        if (isIOS) {
-          // iOS需要更多重试
-          [120, 300, 600, 1000, 1500, 2000, 2500].forEach((t) =>
-            setTimeout(performScroll, t)
-          );
-        } else {
-          // PC端保持原有重试次数
-          [120, 300, 600, 1000, 1500, 2000].forEach((t) =>
-            setTimeout(performScroll, t)
-          );
+      // 如果元素已存在，直接执行
+      if (anchorKey) {
+        const el = document.querySelector(
+          `[data-search-key="${anchorKey}"]`
+        ) as HTMLElement | null;
+        if (el) {
+          performScroll();
+          return;
         }
+      } else if (typeof target === 'number') {
+        performScroll();
         return;
       }
 
-      // 元素尚未出现：建立观察与轮询，最长等待 2500ms
-      let elapsed = 0;
-      const interval = 100;
-      const maxWait = 2500;
-      let observer: MutationObserver | null = null;
-
-      const tick = () => {
-        const el = anchorKey ? tryLocate() : null;
-        if (el || elapsed >= maxWait) {
-          if (observer) observer.disconnect();
-          performScroll();
-          if (isIOS) {
-            // iOS需要更多重试
-            [120, 300, 600, 1000, 1500, 2000].forEach((t) =>
-              setTimeout(performScroll, t)
-            );
-          } else {
-            // PC端保持原有重试次数
-            [120, 300, 600, 1000, 1500].forEach((t) =>
-              setTimeout(performScroll, t)
-            );
-          }
-          return;
-        }
-        elapsed += interval;
-        setTimeout(tick, interval);
-      };
-
-      try {
-        observer = new MutationObserver(() => {
-          const el = anchorKey ? tryLocate() : null;
-          if (el) {
-            if (observer) observer.disconnect();
+      // 元素不存在时，等待一段时间后重试（简化逻辑）
+      if (anchorKey) {
+        let attempts = 0;
+        const maxAttempts = 10;
+        const checkElement = () => {
+          const el = document.querySelector(
+            `[data-search-key="${anchorKey}"]`
+          ) as HTMLElement | null;
+          if (el || attempts >= maxAttempts) {
             performScroll();
-            if (isIOS) {
-              // iOS需要更多重试
-              [120, 300, 600, 1000, 1500, 2000].forEach((t) =>
-                setTimeout(performScroll, t)
-              );
-            } else {
-              // PC端保持原有重试次数
-              [120, 300, 600, 1000, 1500].forEach((t) =>
-                setTimeout(performScroll, t)
-              );
-            }
+            return;
           }
-        });
-        observer.observe(document.documentElement, {
-          childList: true,
-          subtree: true,
-        });
-      } catch (_) {
-        /* ignore */
+          attempts++;
+          setTimeout(checkElement, 100);
+        };
+        checkElement();
       }
-      tick();
     },
     [setScrollTop, isIOS]
   );
@@ -285,34 +247,61 @@ function SearchPageClient() {
 
     try {
       const currentState = localStorage.getItem('searchPageState');
-      if (currentState) {
-        const parsedState = JSON.parse(currentState);
-        const currentScroll = getScrollTop();
-        parsedState.scrollPosition = currentScroll;
-        parsedState.timestamp = Date.now();
-        localStorage.setItem('searchPageState', JSON.stringify(parsedState));
+      const parsedState = currentState ? JSON.parse(currentState) : {};
+
+      // 获取当前滚动位置，iOS端使用更可靠的方法
+      let currentScroll = 0;
+      if (isIOS) {
+        // iOS端优先使用window.scrollY
+        currentScroll = typeof window.scrollY === 'number' ? window.scrollY : 0;
+        // 如果window.scrollY不可用，尝试其他方法
+        if (currentScroll === 0) {
+          const el = getScrollingElement();
+          currentScroll = el ? el.scrollTop : 0;
+        }
+      } else {
+        // PC端使用原有逻辑
+        currentScroll = getScrollTop();
       }
+
+      parsedState.scrollPosition = currentScroll;
+      parsedState.timestamp = Date.now();
+      localStorage.setItem('searchPageState', JSON.stringify(parsedState));
     } catch (error) {
       // 静默处理错误
     }
-  }, [getScrollTop]);
+  }, [getScrollTop, isIOS, getScrollingElement]);
 
   // 在用户滚动时实时保存滚动位置（rAF 节流）
   useEffect(() => {
     let ticking = false;
+    let lastSaveTime = 0;
+    const saveInterval = isIOS ? 200 : 100; // iOS端降低保存频率，避免过度触发
+
     const onScroll = () => {
       if (!ticking) {
         ticking = true;
         requestAnimationFrame(() => {
-          saveScrollPosition();
+          const now = Date.now();
+          // 限制保存频率，避免过度写入localStorage
+          if (now - lastSaveTime >= saveInterval) {
+            saveScrollPosition();
+            lastSaveTime = now;
+          }
           ticking = false;
         });
       }
     };
-    window.addEventListener('scroll', onScroll, { passive: true });
+
+    // iOS端使用更稳定的滚动监听配置
+    const scrollOptions = isIOS
+      ? { passive: true, capture: false }
+      : { passive: true };
+
+    window.addEventListener('scroll', onScroll, scrollOptions);
     return () =>
       window.removeEventListener('scroll', onScroll as EventListener);
-  }, [saveScrollPosition]);
+  }, [saveScrollPosition, isIOS]);
 
   // 从本地存储恢复搜索状态
   const restoreSearchState = useCallback(() => {
@@ -900,24 +889,26 @@ function SearchPageClient() {
   // 统一的滚动位置恢复逻辑（使用 useLayoutEffect 提前于绘制）
   useLayoutEffect(() => {
     if (pendingScrollPosition !== null) {
-      // iOS 使用增强版恢复；PC 端恢复原有逻辑，避免行为变化
+      const getMaxScrollTop = () =>
+        Math.max(
+          document.body.scrollHeight - window.innerHeight,
+          document.documentElement.scrollHeight - window.innerHeight,
+          0
+        );
+      const targetPosition = Math.max(
+        0,
+        Math.min(pendingScrollPosition, getMaxScrollTop())
+      );
+
+      if (targetPosition === 0) {
+        setPendingScrollPosition(null);
+        return;
+      }
+
       if (isIOS) {
+        // iOS端简化滚动恢复逻辑
         const restoreScrollIOS = () => {
-          const getMaxScrollTop = () =>
-            Math.max(
-              document.body.scrollHeight - window.innerHeight,
-              document.documentElement.scrollHeight - window.innerHeight,
-              0
-            );
-          const targetPosition = Math.max(
-            0,
-            Math.min(pendingScrollPosition, getMaxScrollTop())
-          );
-          if (targetPosition === 0) {
-            setPendingScrollPosition(null);
-            return;
-          }
-          // 尝试移除可能阻碍滚动的焦点（例如输入框）
+          // 移除焦点避免干扰
           try {
             if (document.activeElement instanceof HTMLElement) {
               document.activeElement.blur();
@@ -925,86 +916,57 @@ function SearchPageClient() {
           } catch (_) {
             /* ignore */
           }
-          // 先锚点，再精确像素校正（带等待/重试）
+
+          // 先尝试锚点定位
           try {
             const saved = localStorage.getItem('searchPageState');
             const parsed = saved ? JSON.parse(saved) : null;
-            anchorThenScroll(parsed?.anchorKey, targetPosition);
+            if (parsed?.anchorKey) {
+              const anchorEl = document.querySelector(
+                `[data-search-key="${parsed.anchorKey}"]`
+              ) as HTMLElement | null;
+              if (anchorEl) {
+                anchorEl.scrollIntoView({ block: 'start', behavior: 'auto' });
+              }
+            }
           } catch (_) {
             /* ignore */
           }
-          let attempts = 0;
-          const maxAttempts = 80;
-          const tolerance = 8;
-          const tryScroll = () => {
-            setScrollTop(targetPosition);
-            const current = getScrollTop();
-            if (Math.abs(current - targetPosition) <= tolerance) {
-              setPendingScrollPosition(null);
-              return;
+
+          // 精确滚动到目标位置
+          window.scrollTo({ top: targetPosition, behavior: 'auto' });
+
+          // 简单的验证和重试机制
+          setTimeout(() => {
+            const currentPos = window.scrollY;
+            if (Math.abs(currentPos - targetPosition) > 10) {
+              window.scrollTo({ top: targetPosition, behavior: 'auto' });
             }
-            attempts += 1;
-            if (attempts >= maxAttempts) {
-              setTimeout(() => {
-                window.scrollTo(0, Math.min(targetPosition, getMaxScrollTop()));
-                setPendingScrollPosition(null);
-              }, 120);
-              return;
-            }
-            requestAnimationFrame(tryScroll);
-          };
-          if (document.readyState !== 'complete') {
-            const onLoad = () => {
-              window.removeEventListener('load', onLoad);
-              requestAnimationFrame(tryScroll);
-            };
-            window.addEventListener('load', onLoad);
-            requestAnimationFrame(tryScroll);
-          } else {
-            requestAnimationFrame(tryScroll);
-          }
+            setPendingScrollPosition(null);
+          }, 100);
         };
-        const maxWaitTime = 3500;
-        const checkInterval = 100;
-        let waitTime = 0;
-        const waitForContent = () => {
-          const hasScrollableContent =
-            document.body.scrollHeight > window.innerHeight;
-          const hasSearchResults = showResults && searchResults.length > 0;
-          const shouldProceed =
-            hasScrollableContent || hasSearchResults || waitTime >= maxWaitTime;
-          if (shouldProceed) {
+
+        // 等待内容加载完成
+        if (document.readyState === 'complete') {
+          restoreScrollIOS();
+        } else {
+          const onLoad = () => {
+            window.removeEventListener('load', onLoad);
             restoreScrollIOS();
-          } else {
-            waitTime += checkInterval;
-            setTimeout(waitForContent, checkInterval);
-          }
-        };
-        waitForContent();
+          };
+          window.addEventListener('load', onLoad);
+        }
       } else {
-        // 非 iOS：恢复为原有逻辑
+        // PC端保持原有逻辑
         const restoreScrollPC = () => {
           const scrollingElement =
             (typeof document !== 'undefined' && document.scrollingElement) ||
             (typeof document !== 'undefined' &&
               (document.documentElement || (document.body as HTMLElement))) ||
             null;
-          const getMaxScrollTop = () =>
-            Math.max(
-              document.body.scrollHeight - window.innerHeight,
-              document.documentElement.scrollHeight - window.innerHeight,
-              0
-            );
-          const targetPosition = Math.max(
-            0,
-            Math.min(pendingScrollPosition, getMaxScrollTop())
-          );
-          if (targetPosition === 0) {
-            setPendingScrollPosition(null);
-            return;
-          }
+
           let attempts = 0;
-          const maxAttempts = 40; // 保持原值
+          const maxAttempts = 40;
           const tolerance = 8;
           const tryScroll = () => {
             if (scrollingElement) {
@@ -1032,17 +994,19 @@ function SearchPageClient() {
             }
             requestAnimationFrame(tryScroll);
           };
-          if (document.readyState !== 'complete') {
+
+          if (document.readyState === 'complete') {
+            requestAnimationFrame(tryScroll);
+          } else {
             const onLoad = () => {
               window.removeEventListener('load', onLoad);
               requestAnimationFrame(tryScroll);
             };
             window.addEventListener('load', onLoad);
-            requestAnimationFrame(tryScroll);
-          } else {
-            requestAnimationFrame(tryScroll);
           }
         };
+
+        // 等待内容加载
         const maxWaitTime = 3500;
         const checkInterval = 100;
         let waitTime = 0;
@@ -1072,7 +1036,7 @@ function SearchPageClient() {
   ]);
 
   // 在组件作用域提供可复用的强制滚动恢复函数，供多个 effect 使用
-  const forceRestoreScroll = useCallback(
+  const _forceRestoreScroll = useCallback(
     (target: number) => {
       if (typeof window === 'undefined' || typeof document === 'undefined')
         return;
@@ -1111,127 +1075,46 @@ function SearchPageClient() {
 
   // 处理 bfcache（返回缓存）场景，确保从播放页返回时也能恢复
   useEffect(() => {
-    const unlockIOSInteraction = () => {
-      if (!isIOS) return; // 只在iOS上执行
-      try {
-        const htmlEl = document.documentElement as HTMLElement;
-        const bodyEl = document.body as HTMLElement;
-        // 解除可能的锁定样式并强制重算
-        htmlEl.style.removeProperty('overflow');
-        bodyEl.style.removeProperty('overflow');
-        htmlEl.style.setProperty('overflow-y', 'auto', 'important');
-        bodyEl.style.setProperty('overflow-y', 'auto', 'important');
-        htmlEl.style.removeProperty('position');
-        bodyEl.style.removeProperty('position');
-        htmlEl.style.setProperty(
-          '-webkit-overflow-scrolling',
-          'auto',
-          'important'
-        );
-        bodyEl.style.setProperty(
-          '-webkit-overflow-scrolling',
-          'auto',
-          'important'
-        );
-        void bodyEl.offsetHeight; // 强制 reflow
-        htmlEl.style.setProperty(
-          '-webkit-overflow-scrolling',
-          'touch',
-          'important'
-        );
-        bodyEl.style.setProperty(
-          '-webkit-overflow-scrolling',
-          'touch',
-          'important'
-        );
-        htmlEl.style.pointerEvents = 'auto';
-        bodyEl.style.pointerEvents = 'auto';
+    if (!isIOS) return; // 只在iOS上执行
 
-        if (document.body.scrollHeight <= window.innerHeight) {
-          const prev = bodyEl.style.minHeight;
-          bodyEl.style.minHeight = '101vh';
-          setTimeout(() => {
-            bodyEl.style.minHeight = prev || '';
-          }, 60);
+    const restoreFromStorage = () => {
+      try {
+        const saved = localStorage.getItem('searchPageState');
+        if (!saved) return;
+        const parsed = JSON.parse(saved);
+        if (parsed?.scrollPosition > 0) {
+          setPendingScrollPosition(parsed.scrollPosition);
         }
       } catch (_) {
         /* ignore */
       }
     };
 
-    const restoreFromStorage = (e?: PageTransitionEvent) => {
-      const doRestore = () => {
-        try {
-          const saved = localStorage.getItem('searchPageState');
-          if (!saved) return;
-          const parsed = JSON.parse(saved);
-          // 先根据锚点进行初步定位
-          // 先锚点，再精确像素校正（带等待/重试）
-          anchorThenScroll(parsed?.anchorKey, parsed?.scrollPosition);
-        } catch (e) {
-          /* ignore */
-        }
-      };
-
-      if (isIOS && e && 'persisted' in e && (e as any).persisted) {
-        // iOS 返回缓存：先解锁，再恢复滚动位置
-        requestAnimationFrame(() => {
-          unlockIOSInteraction();
-          requestAnimationFrame(doRestore);
-        });
-        setTimeout(doRestore, 0);
-        return;
-      }
-
-      doRestore();
-    };
     const onPageShow = (event: Event) => {
-      if (isIOS) {
-        // 即便不是 persisted，也尝试解锁，兼容部分内置 WebView
-        requestAnimationFrame(unlockIOSInteraction);
-        setTimeout(unlockIOSInteraction, 0);
-      }
-      // 将恢复放到更靠后时机，并额外增加延迟重试
-      requestAnimationFrame(() =>
-        setTimeout(() => restoreFromStorage(event as PageTransitionEvent), 0)
-      );
-      setTimeout(() => restoreFromStorage(event as PageTransitionEvent), 800);
-      setTimeout(() => restoreFromStorage(event as PageTransitionEvent), 1600);
-      // 若由左上返回触发，则在稍后再尝试恢复，增加命中概率
-      try {
-        const trigger = localStorage.getItem('searchReturnTrigger');
-        if (trigger) {
-          [120, 300, 600, 1000, 1500].forEach((t) =>
-            setTimeout(
-              () => restoreFromStorage(event as PageTransitionEvent),
-              t
-            )
-          );
-          localStorage.removeItem('searchReturnTrigger');
-        }
-      } catch (_) {
-        /* ignore */
+      // 简化iOS恢复逻辑，减少延迟和重试
+      if (event && 'persisted' in event && (event as any).persisted) {
+        // 从缓存恢复
+        setTimeout(restoreFromStorage, 100);
+      } else {
+        // 正常页面显示
+        restoreFromStorage();
       }
     };
+
     const onPopState = () => {
-      if (isIOS) {
-        requestAnimationFrame(unlockIOSInteraction);
-        setTimeout(unlockIOSInteraction, 0);
-      }
-      requestAnimationFrame(() => setTimeout(() => restoreFromStorage(), 0));
-      [120, 300, 600, 1000, 1500].forEach((t) =>
-        setTimeout(() => restoreFromStorage(), t)
-      );
+      restoreFromStorage();
     };
+
     window.addEventListener('pageshow', onPageShow);
     window.addEventListener('popstate', onPopState);
+
     return () => {
       window.removeEventListener('pageshow', onPageShow);
       window.removeEventListener('popstate', onPopState);
     };
-  }, [anchorThenScroll, isIOS]);
+  }, [isIOS]);
 
-  // iOS: 页面再次可见时再尝试一次锚点 + 强制滚动的恢复（额外兜底，不影响 PC）
+  // iOS: 页面再次可见时的简化恢复逻辑
   useEffect(() => {
     if (!isIOS) return; // 只在iOS上执行
 
@@ -1241,29 +1124,19 @@ function SearchPageClient() {
         const saved = localStorage.getItem('searchPageState');
         if (!saved) return;
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.anchorKey) {
-          const el = document.querySelector(
-            `[data-search-key="${parsed.anchorKey}"]`
-          ) as HTMLElement | null;
-          if (el) {
-            try {
-              el.scrollIntoView({ block: 'start', behavior: 'auto' });
-            } catch (_) {
-              el.scrollIntoView({ block: 'start' as any });
-            }
-          }
-        }
-        if (parsed && parsed.scrollPosition > 0) {
-          forceRestoreScroll(parsed.scrollPosition);
+        if (parsed?.scrollPosition > 0) {
+          // 直接设置滚动位置，避免复杂的重试逻辑
+          window.scrollTo({ top: parsed.scrollPosition, behavior: 'auto' });
         }
       } catch (_) {
         /* ignore */
       }
     };
+
     document.addEventListener('visibilitychange', attemptOnVisible);
     return () =>
       document.removeEventListener('visibilitychange', attemptOnVisible);
-  }, [forceRestoreScroll, isIOS]);
+  }, [isIOS]);
 
   // 监听页面可见性变化，确保从详情页返回时能正确恢复状态
   useEffect(() => {
