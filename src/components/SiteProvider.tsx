@@ -64,27 +64,22 @@ export function SiteProvider({
       w.__APP_CONSOLE_HOOKED__ = true;
       console.log = (...args) => {
         pushLog('log', args);
-        // @ts-expect-error preserve
         originalConsole.log.apply(console, args as any);
       };
       console.info = (...args) => {
         pushLog('info', args);
-        // @ts-expect-error preserve
         originalConsole.info.apply(console, args as any);
       };
       console.warn = (...args) => {
         pushLog('warn', args);
-        // @ts-expect-error preserve
         originalConsole.warn.apply(console, args as any);
       };
       console.error = (...args) => {
         pushLog('error', args);
-        // @ts-expect-error preserve
         originalConsole.error.apply(console, args as any);
       };
       console.debug = (...args) => {
         pushLog('debug', args);
-        // @ts-expect-error preserve
         originalConsole.debug?.apply(console, args as any);
       };
     }
