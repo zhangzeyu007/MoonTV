@@ -58,6 +58,9 @@ function SearchPageClient() {
   // 防抖定时器ref，用于实时搜索
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // 实时滚动位置缓存，确保在点击时能获取到正确的滚动位置
+  const currentScrollPositionRef = useRef<number>(0);
+
   // 统一滚动工具：在 iOS 上优先使用 scrollingElement
   const getScrollingElement = useCallback(() => {
     if (typeof document === 'undefined')
@@ -76,6 +79,64 @@ function SearchPageClient() {
       return el.scrollTop || 0;
     return typeof window.scrollY === 'number' ? window.scrollY : 0;
   }, [getScrollingElement]);
+
+  // 全局滚动位置获取函数，供VideoCard等组件使用
+  const getCurrentScrollPosition = useCallback(() => {
+    // 尝试多种方法获取滚动位置，确保在iOS上也能正确获取
+    const scrollMethods = [
+      {
+        name: 'window.scrollY',
+        value: typeof window.scrollY === 'number' ? window.scrollY : 0,
+      },
+      {
+        name: 'document.documentElement.scrollTop',
+        value: document.documentElement?.scrollTop || 0,
+      },
+      { name: 'document.body.scrollTop', value: document.body?.scrollTop || 0 },
+      {
+        name: 'document.scrollingElement.scrollTop',
+        value: document.scrollingElement?.scrollTop || 0,
+      },
+    ];
+
+    // 找到第一个非零值，或者使用最大值
+    const validScrolls = scrollMethods.filter((method) => method.value > 0);
+
+    let currentScroll = 0;
+    if (validScrolls.length > 0) {
+      // 如果有有效的滚动值，使用第一个（通常是最准确的）
+      currentScroll = validScrolls[0].value;
+      // // console.log('[全局滚动位置获取] 使用有效方法:', validScrolls[0].name, currentScroll);
+    } else {
+      // 如果所有方法都返回0，尝试使用最大值（可能都是0，但确保逻辑正确）
+      currentScroll = Math.max(...scrollMethods.map((m) => m.value));
+      // // console.log('[全局滚动位置获取] 所有方法返回0，使用最大值:', currentScroll);
+    }
+
+    // 更新缓存
+    currentScrollPositionRef.current = currentScroll;
+    return currentScroll;
+  }, []);
+
+  // 滚动位置缓存更新函数
+  const updateScrollCache = useCallback((position: number) => {
+    currentScrollPositionRef.current = position;
+    // // console.log('[滚动位置缓存更新] 手动更新缓存:', position);
+  }, []);
+
+  // 将滚动位置获取函数和缓存更新函数暴露给全局，供VideoCard使用
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).getSearchPageScrollPosition = getCurrentScrollPosition;
+      (window as any).updateSearchPageScrollCache = updateScrollCache;
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete (window as any).getSearchPageScrollPosition;
+        delete (window as any).updateSearchPageScrollCache;
+      }
+    };
+  }, [getCurrentScrollPosition, updateScrollCache]);
 
   const setScrollTop = useCallback(
     (y: number) => {
@@ -249,26 +310,67 @@ function SearchPageClient() {
       const currentState = localStorage.getItem('searchPageState');
       const parsedState = currentState ? JSON.parse(currentState) : {};
 
-      // 获取当前滚动位置，iOS端使用更可靠的方法
+      // 获取当前滚动位置，使用多种方法确保准确性
+      const scrollMethods = [
+        {
+          name: 'window.scrollY',
+          value: typeof window.scrollY === 'number' ? window.scrollY : 0,
+        },
+        {
+          name: 'document.documentElement.scrollTop',
+          value: document.documentElement?.scrollTop || 0,
+        },
+        {
+          name: 'document.body.scrollTop',
+          value: document.body?.scrollTop || 0,
+        },
+        {
+          name: 'document.scrollingElement.scrollTop',
+          value: document.scrollingElement?.scrollTop || 0,
+        },
+      ];
+
+      // 找到第一个非零值，或者使用最大值
+      const validScrolls = scrollMethods.filter((method) => method.value > 0);
+
       let currentScroll = 0;
-      if (isIOS) {
-        // iOS端优先使用window.scrollY
-        currentScroll = typeof window.scrollY === 'number' ? window.scrollY : 0;
-        // 如果window.scrollY不可用，尝试其他方法
-        if (currentScroll === 0) {
-          const el = getScrollingElement();
-          currentScroll = el ? el.scrollTop : 0;
-        }
+      let _scrollMethod = '';
+
+      if (validScrolls.length > 0) {
+        // 如果有有效的滚动值，使用第一个（通常是最准确的）
+        currentScroll = validScrolls[0].value;
+        _scrollMethod = validScrolls[0].name;
       } else {
-        // PC端使用原有逻辑
-        currentScroll = getScrollTop();
+        // 如果所有方法都返回0，尝试使用最大值（可能都是0，但确保逻辑正确）
+        currentScroll = Math.max(...scrollMethods.map((m) => m.value));
+        _scrollMethod = 'Math.max(all methods)';
       }
+
+      // 更新实时缓存
+      currentScrollPositionRef.current = currentScroll;
+
+      // 添加调试日志
+      // console.log('[滚动位置保存]', {
+      //   isIOS,
+      //   scrollMethod,
+      //   currentScroll,
+      //   windowScrollY: typeof window.scrollY === 'number' ? window.scrollY : 'undefined',
+      //   documentScrollTop: document.documentElement?.scrollTop || 0,
+      //   bodyScrollTop: document.body?.scrollTop || 0,
+      //   scrollingElementScrollTop: getScrollingElement()?.scrollTop || 0,
+      //   timestamp: new Date().toISOString()
+      // });
 
       parsedState.scrollPosition = currentScroll;
       parsedState.timestamp = Date.now();
       localStorage.setItem('searchPageState', JSON.stringify(parsedState));
+
+      // console.log('[滚动位置保存] localStorage已更新:', {
+      //   scrollPosition: currentScroll,
+      //   timestamp: parsedState.timestamp
+      // });
     } catch (error) {
-      // 静默处理错误
+      // console.error('[滚动位置保存] 错误:', error);
     }
   }, [getScrollTop, isIOS, getScrollingElement]);
 
@@ -283,6 +385,11 @@ function SearchPageClient() {
         ticking = true;
         requestAnimationFrame(() => {
           const now = Date.now();
+
+          // 立即更新滚动位置缓存，不依赖保存频率
+          const currentPos = getCurrentScrollPosition();
+          currentScrollPositionRef.current = currentPos;
+
           // 限制保存频率，避免过度写入localStorage
           if (now - lastSaveTime >= saveInterval) {
             saveScrollPosition();
@@ -299,9 +406,48 @@ function SearchPageClient() {
       : { passive: true };
 
     window.addEventListener('scroll', onScroll, scrollOptions);
-    return () =>
+
+    // 页面加载完成后延迟更新滚动位置缓存，确保页面完全渲染
+    const updateInitialScrollPosition = () => {
+      // 延迟执行，确保页面完全渲染和滚动位置稳定
+      setTimeout(() => {
+        const currentPos = getCurrentScrollPosition();
+        // // console.log('[滚动位置初始化] 页面加载完成，更新滚动位置缓存:', currentPos);
+
+        // 如果初始位置为0，再尝试几次获取
+        if (currentPos === 0) {
+          let attempts = 0;
+          const maxAttempts = 5;
+          const retryInterval = 200;
+
+          const retryGetPosition = () => {
+            attempts++;
+            const retryPos = getCurrentScrollPosition();
+            // // console.log(`[滚动位置初始化] 重试获取位置 ${attempts}/${maxAttempts}:`, retryPos);
+
+            if (retryPos > 0 || attempts >= maxAttempts) {
+              // // console.log('[滚动位置初始化] 最终位置:', retryPos);
+            } else {
+              setTimeout(retryGetPosition, retryInterval);
+            }
+          };
+
+          setTimeout(retryGetPosition, retryInterval);
+        }
+      }, 100);
+    };
+
+    if (document.readyState === 'complete') {
+      updateInitialScrollPosition();
+    } else {
+      window.addEventListener('load', updateInitialScrollPosition);
+    }
+
+    return () => {
       window.removeEventListener('scroll', onScroll as EventListener);
-  }, [saveScrollPosition, isIOS]);
+      window.removeEventListener('load', updateInitialScrollPosition);
+    };
+  }, [saveScrollPosition, isIOS, getCurrentScrollPosition]);
 
   // 从本地存储恢复搜索状态
   const restoreSearchState = useCallback(() => {
@@ -889,6 +1035,15 @@ function SearchPageClient() {
   // 统一的滚动位置恢复逻辑（使用 useLayoutEffect 提前于绘制）
   useLayoutEffect(() => {
     if (pendingScrollPosition !== null) {
+      // console.log('[滚动位置恢复] 开始恢复滚动位置:', {
+      //   pendingScrollPosition,
+      //   isIOS,
+      //   documentReadyState: document.readyState,
+      //   showResults,
+      //   searchResultsLength: searchResults.length,
+      //   timestamp: new Date().toISOString()
+      // });
+
       const getMaxScrollTop = () =>
         Math.max(
           document.body.scrollHeight - window.innerHeight,
@@ -900,7 +1055,17 @@ function SearchPageClient() {
         Math.min(pendingScrollPosition, getMaxScrollTop())
       );
 
+      // console.log('[滚动位置恢复] 计算目标位置:', {
+      //   originalPosition: pendingScrollPosition,
+      //   maxScrollTop: getMaxScrollTop(),
+      //   targetPosition,
+      //   documentHeight: document.documentElement.scrollHeight,
+      //   bodyHeight: document.body.scrollHeight,
+      //   windowHeight: window.innerHeight
+      // });
+
       if (targetPosition === 0) {
+        // console.log('[滚动位置恢复] 目标位置为0，跳过恢复');
         setPendingScrollPosition(null);
         return;
       }
@@ -908,10 +1073,17 @@ function SearchPageClient() {
       if (isIOS) {
         // iOS端简化滚动恢复逻辑
         const restoreScrollIOS = () => {
+          // console.log('[滚动位置恢复] iOS开始恢复:', {
+          //   targetPosition,
+          //   currentScrollY: window.scrollY,
+          //   currentScrollTop: getScrollingElement()?.scrollTop || 0
+          // });
+
           // 移除焦点避免干扰
           try {
             if (document.activeElement instanceof HTMLElement) {
               document.activeElement.blur();
+              // console.log('[滚动位置恢复] 已移除焦点');
             }
           } catch (_) {
             /* ignore */
@@ -922,43 +1094,240 @@ function SearchPageClient() {
             const saved = localStorage.getItem('searchPageState');
             const parsed = saved ? JSON.parse(saved) : null;
             if (parsed?.anchorKey) {
+              // console.log('[滚动位置恢复] 尝试锚点定位:', parsed.anchorKey);
               const anchorEl = document.querySelector(
                 `[data-search-key="${parsed.anchorKey}"]`
               ) as HTMLElement | null;
               if (anchorEl) {
                 anchorEl.scrollIntoView({ block: 'start', behavior: 'auto' });
+                // console.log('[滚动位置恢复] 锚点定位完成');
+              } else {
+                // console.log('[滚动位置恢复] 锚点元素未找到');
               }
             }
-          } catch (_) {
-            /* ignore */
+          } catch (error) {
+            // console.error('[滚动位置恢复] 锚点定位失败:', error);
           }
 
-          // 精确滚动到目标位置
+          // 精确滚动到目标位置 - 使用多种方法确保成功
           window.scrollTo({ top: targetPosition, behavior: 'auto' });
 
-          // 简单的验证和重试机制
+          // 同时设置其他滚动属性，确保iOS兼容性
+          if (document.body) {
+            document.body.scrollTop = targetPosition;
+          }
+          if (document.documentElement) {
+            document.documentElement.scrollTop = targetPosition;
+          }
+
+          // console.log('[滚动位置恢复] iOS已执行多种滚动方法:', targetPosition);
+
+          // 更新缓存
+          currentScrollPositionRef.current = targetPosition;
+
+          // 改进的验证和重试机制 - 使用与保存时相同的检测方法
           setTimeout(() => {
-            const currentPos = window.scrollY;
-            if (Math.abs(currentPos - targetPosition) > 10) {
+            // 使用与保存时相同的滚动位置检测方法
+            const scrollMethods = [
+              {
+                name: 'window.scrollY',
+                value: typeof window.scrollY === 'number' ? window.scrollY : 0,
+              },
+              {
+                name: 'document.documentElement.scrollTop',
+                value: document.documentElement?.scrollTop || 0,
+              },
+              {
+                name: 'document.body.scrollTop',
+                value: document.body?.scrollTop || 0,
+              },
+              {
+                name: 'document.scrollingElement.scrollTop',
+                value: document.scrollingElement?.scrollTop || 0,
+              },
+            ];
+
+            // 找到第一个非零值，或者使用最大值
+            const validScrolls = scrollMethods.filter(
+              (method) => method.value > 0
+            );
+            const currentPos =
+              validScrolls.length > 0
+                ? validScrolls[0].value
+                : Math.max(...scrollMethods.map((m) => m.value));
+            const _currentScrollTop = getScrollingElement()?.scrollTop || 0;
+            const diff = Math.abs(currentPos - targetPosition);
+
+            // console.log('[滚动位置恢复] iOS验证结果:', {
+            //   targetPosition,
+            //   currentPos,
+            //   currentScrollTop,
+            //   diff,
+            //   success: diff <= 10,
+            //   scrollMethods: scrollMethods.map(m => ({ name: m.name, value: m.value }))
+            // });
+
+            if (diff > 10) {
+              // console.log('[滚动位置恢复] iOS重试滚动');
+              // 使用多种方法确保滚动成功
               window.scrollTo({ top: targetPosition, behavior: 'auto' });
+              if (document.body) document.body.scrollTop = targetPosition;
+              if (document.documentElement)
+                document.documentElement.scrollTop = targetPosition;
+
+              // 延迟验证，给页面更多时间渲染
+              setTimeout(() => {
+                const retryScrollMethods = [
+                  {
+                    name: 'window.scrollY',
+                    value:
+                      typeof window.scrollY === 'number' ? window.scrollY : 0,
+                  },
+                  {
+                    name: 'document.documentElement.scrollTop',
+                    value: document.documentElement?.scrollTop || 0,
+                  },
+                  {
+                    name: 'document.body.scrollTop',
+                    value: document.body?.scrollTop || 0,
+                  },
+                  {
+                    name: 'document.scrollingElement.scrollTop',
+                    value: document.scrollingElement?.scrollTop || 0,
+                  },
+                ];
+
+                const retryValidScrolls = retryScrollMethods.filter(
+                  (method) => method.value > 0
+                );
+                const finalPos =
+                  retryValidScrolls.length > 0
+                    ? retryValidScrolls[0].value
+                    : Math.max(...retryScrollMethods.map((m) => m.value));
+                const finalDiff = Math.abs(finalPos - targetPosition);
+
+                // console.log('[滚动位置恢复] iOS最终结果:', {
+                //   targetPosition,
+                //   finalPos,
+                //   finalDiff,
+                //   success: finalDiff <= 10,
+                //   retryScrollMethods: retryScrollMethods.map(m => ({ name: m.name, value: m.value }))
+                // });
+
+                // 如果仍然失败，尝试最后一次强制滚动
+                if (finalDiff > 10) {
+                  // console.log('[滚动位置恢复] iOS最后一次强制滚动尝试');
+
+                  // 尝试多种强制滚动方法
+                  try {
+                    // 方法1: 直接设置scrollTop
+                    if (document.body) document.body.scrollTop = targetPosition;
+                    if (document.documentElement)
+                      document.documentElement.scrollTop = targetPosition;
+
+                    // 方法2: 使用window.scrollTo
+                    window.scrollTo(0, targetPosition);
+
+                    // 方法3: 使用scrollIntoView（如果找到目标元素）
+                    const saved = localStorage.getItem('searchPageState');
+                    const parsed = saved ? JSON.parse(saved) : null;
+                    if (parsed?.anchorKey) {
+                      const anchorEl = document.querySelector(
+                        `[data-search-key="${parsed.anchorKey}"]`
+                      ) as HTMLElement | null;
+                      if (anchorEl) {
+                        // 计算元素相对于目标位置的位置
+                        const elementTop = anchorEl.offsetTop;
+                        const offset = targetPosition - elementTop;
+                        if (offset > 0) {
+                          anchorEl.scrollIntoView({
+                            block: 'start',
+                            behavior: 'auto',
+                          });
+                          // 再微调位置
+                          setTimeout(() => {
+                            window.scrollTo(0, targetPosition);
+                          }, 50);
+                        }
+                      }
+                    }
+
+                    // 方法4: 使用requestAnimationFrame确保在下一帧执行
+                    requestAnimationFrame(() => {
+                      window.scrollTo(0, targetPosition);
+                      if (document.body)
+                        document.body.scrollTop = targetPosition;
+                      if (document.documentElement)
+                        document.documentElement.scrollTop = targetPosition;
+                    });
+                  } catch (error) {
+                    // console.error('[滚动位置恢复] iOS强制滚动失败:', error);
+                  }
+                }
+
+                setPendingScrollPosition(null);
+              }, 150); // 增加延迟时间
+            } else {
+              setPendingScrollPosition(null);
             }
-            setPendingScrollPosition(null);
-          }, 100);
+          }, 150); // 增加初始验证延迟
         };
 
-        // 等待内容加载完成
+        // 等待内容加载完成，iOS需要更多时间确保DOM完全渲染
         if (document.readyState === 'complete') {
-          restoreScrollIOS();
+          // console.log('[滚动位置恢复] iOS文档已加载完成，延迟恢复确保DOM渲染');
+          // 即使文档状态是complete，也延迟一下确保DOM完全渲染
+          setTimeout(() => {
+            restoreScrollIOS();
+          }, 100);
         } else {
+          // console.log('[滚动位置恢复] iOS等待文档加载完成');
           const onLoad = () => {
             window.removeEventListener('load', onLoad);
-            restoreScrollIOS();
+            // console.log('[滚动位置恢复] iOS文档加载完成，延迟恢复');
+            // 延迟恢复，确保搜索结果完全渲染
+            setTimeout(() => {
+              restoreScrollIOS();
+            }, 200);
           };
           window.addEventListener('load', onLoad);
+        }
+
+        // 额外的容错机制：在页面完全稳定后再次尝试恢复
+        const fallbackRestore = () => {
+          if (pendingScrollPosition !== null) {
+            // console.log('[滚动位置恢复] iOS容错恢复尝试');
+            setTimeout(() => {
+              if (pendingScrollPosition !== null) {
+                // console.log('[滚动位置恢复] iOS执行容错恢复');
+                window.scrollTo(0, pendingScrollPosition);
+                if (document.body)
+                  document.body.scrollTop = pendingScrollPosition;
+                if (document.documentElement)
+                  document.documentElement.scrollTop = pendingScrollPosition;
+                setPendingScrollPosition(null);
+              }
+            }, 1000); // 1秒后尝试容错恢复
+          }
+        };
+
+        // 监听页面稳定事件
+        if (document.readyState === 'complete') {
+          setTimeout(fallbackRestore, 2000); // 2秒后尝试容错恢复
+        } else {
+          window.addEventListener('load', () => {
+            setTimeout(fallbackRestore, 2000); // 2秒后尝试容错恢复
+          });
         }
       } else {
         // PC端保持原有逻辑
         const restoreScrollPC = () => {
+          // console.log('[滚动位置恢复] PC开始恢复:', {
+          //   targetPosition,
+          //   currentScrollY: window.scrollY,
+          //   currentScrollTop: getScrollingElement()?.scrollTop || 0
+          // });
+
           const scrollingElement =
             (typeof document !== 'undefined' && document.scrollingElement) ||
             (typeof document !== 'undefined' &&
@@ -980,12 +1349,25 @@ function SearchPageClient() {
             const current = scrollingElement
               ? scrollingElement.scrollTop
               : window.scrollY;
+
+            // console.log('[滚动位置恢复] PC尝试滚动:', {
+            //   attempt: attempts + 1,
+            //   targetPosition,
+            //   current,
+            //   diff: Math.abs(current - targetPosition),
+            //   success: Math.abs(current - targetPosition) <= tolerance
+            // });
+
             if (Math.abs(current - targetPosition) <= tolerance) {
+              // console.log('[滚动位置恢复] PC恢复成功');
+              // 更新缓存
+              currentScrollPositionRef.current = targetPosition;
               setPendingScrollPosition(null);
               return;
             }
             attempts += 1;
             if (attempts >= maxAttempts) {
+              // console.log('[滚动位置恢复] PC达到最大重试次数，使用兜底方案');
               setTimeout(() => {
                 window.scrollTo(0, Math.min(targetPosition, getMaxScrollTop()));
                 setPendingScrollPosition(null);
@@ -996,10 +1378,13 @@ function SearchPageClient() {
           };
 
           if (document.readyState === 'complete') {
+            // console.log('[滚动位置恢复] PC文档已加载完成，立即恢复');
             requestAnimationFrame(tryScroll);
           } else {
+            // console.log('[滚动位置恢复] PC等待文档加载完成');
             const onLoad = () => {
               window.removeEventListener('load', onLoad);
+              // console.log('[滚动位置恢复] PC文档加载完成，开始恢复');
               requestAnimationFrame(tryScroll);
             };
             window.addEventListener('load', onLoad);
@@ -1016,6 +1401,14 @@ function SearchPageClient() {
           const hasSearchResults = showResults && searchResults.length > 0;
           const shouldProceed =
             hasScrollableContent || hasSearchResults || waitTime >= maxWaitTime;
+
+          // console.log('[滚动位置恢复] PC等待内容加载:', {
+          //   waitTime,
+          //   hasScrollableContent,
+          //   hasSearchResults,
+          //   shouldProceed
+          // });
+
           if (shouldProceed) {
             restoreScrollPC();
           } else {
@@ -1114,29 +1507,79 @@ function SearchPageClient() {
     };
   }, [isIOS]);
 
-  // iOS: 页面再次可见时的简化恢复逻辑
+  // iOS: 页面再次可见时的增强恢复逻辑
   useEffect(() => {
     if (!isIOS) return; // 只在iOS上执行
 
     const attemptOnVisible = () => {
       if (document.visibilityState !== 'visible') return;
+
       try {
         const saved = localStorage.getItem('searchPageState');
         if (!saved) return;
         const parsed = JSON.parse(saved);
+
         if (parsed?.scrollPosition > 0) {
-          // 直接设置滚动位置，避免复杂的重试逻辑
-          window.scrollTo({ top: parsed.scrollPosition, behavior: 'auto' });
+          // console.log('[iOS页面可见] 尝试恢复滚动位置:', {
+          //   scrollPosition: parsed.scrollPosition,
+          //   currentScrollY: window.scrollY,
+          //   timestamp: new Date().toISOString()
+          // });
+
+          // 使用增强的滚动恢复逻辑
+          const targetPosition = parsed.scrollPosition;
+          let attempts = 0;
+          const maxAttempts = 5;
+
+          const tryScroll = () => {
+            attempts++;
+            // console.log(`[iOS页面可见] 尝试滚动 ${attempts}/${maxAttempts}:`, {
+            //   targetPosition,
+            //   currentScrollY: window.scrollY,
+            //   currentScrollTop: getScrollingElement()?.scrollTop || 0
+            // });
+
+            // 尝试多种滚动方法
+            window.scrollTo({ top: targetPosition, behavior: 'auto' });
+
+            // 验证滚动是否成功
+            setTimeout(() => {
+              const currentPos = window.scrollY;
+              const diff = Math.abs(currentPos - targetPosition);
+
+              // console.log(`[iOS页面可见] 验证结果 ${attempts}:`, {
+              //   targetPosition,
+              //   currentPos,
+              //   diff,
+              //   success: diff <= 20
+              // });
+
+              if (diff <= 20 || attempts >= maxAttempts) {
+                // console.log('[iOS页面可见] 滚动恢复完成:', {
+                //   finalPosition: currentPos,
+                //   targetPosition,
+                //   success: diff <= 20,
+                //   attempts
+                // });
+              } else {
+                // 重试
+                setTimeout(tryScroll, 100);
+              }
+            }, 50);
+          };
+
+          // 延迟执行，确保页面完全可见
+          setTimeout(tryScroll, 100);
         }
-      } catch (_) {
-        /* ignore */
+      } catch (error) {
+        // console.error('[iOS页面可见] 恢复滚动位置失败:', error);
       }
     };
 
     document.addEventListener('visibilitychange', attemptOnVisible);
     return () =>
       document.removeEventListener('visibilitychange', attemptOnVisible);
-  }, [isIOS]);
+  }, [isIOS, getScrollingElement]);
 
   // 监听页面可见性变化，确保从详情页返回时能正确恢复状态
   useEffect(() => {
@@ -1172,6 +1615,64 @@ function SearchPageClient() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isInitialized, hasRestoredState, restoreSearchState]);
+
+  // 全局滚动位置监控和错误报告机制
+  useEffect(() => {
+    if (!isIOS) return; // 只在iOS上执行
+
+    let errorCount = 0;
+    const maxErrors = 3;
+    const reportInterval = 5000; // 5秒报告一次
+
+    const monitorScrollPosition = () => {
+      try {
+        const currentPos = window.scrollY;
+        const saved = localStorage.getItem('searchPageState');
+
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          const savedPosition = parsed.scrollPosition || 0;
+          const diff = Math.abs(currentPos - savedPosition);
+
+          // 如果滚动位置差异过大，记录错误
+          if (diff > 50 && savedPosition > 0) {
+            errorCount++;
+            // console.warn('[滚动位置监控] 检测到位置偏差:', {
+            //   currentPos,
+            //   savedPosition,
+            //   diff,
+            //   errorCount,
+            //   timestamp: new Date().toISOString()
+            // });
+
+            if (errorCount >= maxErrors) {
+              // console.error('[滚动位置监控] 滚动位置频繁偏差，可能存在iOS兼容性问题:', {
+              //   currentPos,
+              //   savedPosition,
+              //   diff,
+              //   errorCount,
+              //   userAgent: navigator.userAgent,
+              //   timestamp: new Date().toISOString()
+              // });
+              errorCount = 0; // 重置计数器
+            }
+          } else if (diff <= 50) {
+            // 位置正常，重置错误计数
+            errorCount = 0;
+          }
+        }
+      } catch (error) {
+        // console.error('[滚动位置监控] 监控失败:', error);
+      }
+    };
+
+    // 定期监控滚动位置
+    const intervalId = setInterval(monitorScrollPosition, reportInterval);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [isIOS]);
 
   useEffect(() => {
     // 当搜索参数变化时更新搜索状态
@@ -1323,9 +1824,22 @@ function SearchPageClient() {
 
             {/* 调试信息 */}
             {process.env.NODE_ENV === 'development' && (
-              <div className='text-xs text-gray-500 mt-2 text-center'>
-                搜索框状态: "{searchQuery}" | 显示结果:{' '}
-                {showResults ? '是' : '否'} | 历史记录数: {searchHistory.length}
+              <div className='text-xs text-gray-500 mt-2 text-center space-y-1'>
+                <div>
+                  搜索框状态: "{searchQuery}" | 显示结果:{' '}
+                  {showResults ? '是' : '否'} | 历史记录数:{' '}
+                  {searchHistory.length}
+                </div>
+                <div className='text-xs text-blue-500'>
+                  滚动调试: iOS={isIOS ? '是' : '否'} | 待恢复位置:{' '}
+                  {pendingScrollPosition || '无'} | 当前滚动:{' '}
+                  {Math.round(window.scrollY || 0)}px
+                </div>
+                <div className='text-xs text-green-500'>
+                  状态: 已初始化={isInitialized ? '是' : '否'} | 导航返回=
+                  {isNavigatingBack ? '是' : '否'} | 已恢复=
+                  {hasRestoredState ? '是' : '否'}
+                </div>
               </div>
             )}
           </form>

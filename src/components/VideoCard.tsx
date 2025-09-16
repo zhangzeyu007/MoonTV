@@ -201,52 +201,128 @@ export default function VideoCard({
     // 如果是从搜索页面跳转，保存当前滚动位置
     if (from === 'search' && typeof window !== 'undefined') {
       try {
+        // console.log('[VideoCard点击] 开始保存滚动位置:', {
+        //   title,
+        //   anchorKey,
+        //   from,
+        //   timestamp: new Date().toISOString()
+        // });
+
+        // 在iOS上，先尝试强制获取一次滚动位置
+        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        if (isIOS) {
+          // 强制触发一次滚动事件，确保滚动位置是最新的
+          const scrollEvent = new Event('scroll', { bubbles: true });
+          window.dispatchEvent(scrollEvent);
+
+          // 短暂延迟，让滚动事件处理完成
+          setTimeout(() => {
+            // console.log('[VideoCard点击] iOS强制滚动事件已触发');
+          }, 10);
+        }
+
         const currentState = localStorage.getItem('searchPageState');
         const parsedState = currentState ? JSON.parse(currentState) : {};
 
-        // 检测iOS设备
-        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-        // 获取当前滚动位置，iOS端使用更可靠的方法
+        // 获取当前滚动位置，优先使用搜索页面的全局函数
         let currentScroll = 0;
-        if (isIOS) {
-          // iOS端优先使用window.scrollY
-          currentScroll =
-            typeof window.scrollY === 'number' ? window.scrollY : 0;
-          // 如果window.scrollY不可用，尝试其他方法
-          if (currentScroll === 0) {
-            const scrollingElement =
-              document.scrollingElement ||
-              document.documentElement ||
-              document.body;
-            currentScroll = scrollingElement ? scrollingElement.scrollTop : 0;
+        let _scrollMethod = '';
+
+        // 首先尝试使用搜索页面的全局滚动位置获取函数
+        if (
+          typeof window !== 'undefined' &&
+          (window as any).getSearchPageScrollPosition
+        ) {
+          try {
+            currentScroll = (window as any).getSearchPageScrollPosition();
+            _scrollMethod = 'searchPageGlobalFunction';
+            // console.log('[VideoCard点击] 使用搜索页面全局函数获取滚动位置:', currentScroll);
+          } catch (error) {
+            // console.warn('[VideoCard点击] 全局函数获取失败:', error);
           }
-        } else {
-          // PC端使用原有逻辑
-          const scrollingElement =
-            (typeof document !== 'undefined' && document.scrollingElement) ||
-            (typeof document !== 'undefined' &&
-              (document.documentElement || (document.body as HTMLElement))) ||
-            null;
-          const y1 = typeof window.scrollY === 'number' ? window.scrollY : 0;
-          const y2 = scrollingElement ? scrollingElement.scrollTop : 0;
-          const y3 =
-            typeof document !== 'undefined' && document.documentElement
-              ? document.documentElement.scrollTop
-              : 0;
-          const y4 =
-            typeof document !== 'undefined' && document.body
-              ? (document.body as HTMLElement).scrollTop
-              : 0;
-          currentScroll = Math.max(y1, y2, y3, y4, 0);
         }
+
+        // 如果全局函数没有获取到有效值，使用备用方法
+        if (currentScroll === 0) {
+          // 尝试多种方法获取滚动位置，确保在iOS上也能正确获取
+          const scrollMethods = [
+            {
+              name: 'window.scrollY',
+              value: typeof window.scrollY === 'number' ? window.scrollY : 0,
+            },
+            {
+              name: 'document.documentElement.scrollTop',
+              value: document.documentElement?.scrollTop || 0,
+            },
+            {
+              name: 'document.body.scrollTop',
+              value: document.body?.scrollTop || 0,
+            },
+            {
+              name: 'document.scrollingElement.scrollTop',
+              value: document.scrollingElement?.scrollTop || 0,
+            },
+          ];
+
+          // 找到第一个非零值，或者使用最大值
+          const validScrolls = scrollMethods.filter(
+            (method) => method.value > 0
+          );
+
+          if (validScrolls.length > 0) {
+            // 如果有有效的滚动值，使用第一个（通常是最准确的）
+            currentScroll = validScrolls[0].value;
+            _scrollMethod = validScrolls[0].name;
+          } else {
+            // 如果所有方法都返回0，尝试使用最大值（可能都是0，但确保逻辑正确）
+            currentScroll = Math.max(...scrollMethods.map((m) => m.value));
+            _scrollMethod = 'Math.max(all methods)';
+          }
+        }
+
+        // 特殊处理：如果所有方法都返回0，但页面明显有滚动内容，尝试从localStorage获取上次保存的位置
+        if (currentScroll === 0 && parsedState.scrollPosition > 0) {
+          // console.log('[VideoCard点击] 所有滚动检测方法返回0，尝试使用上次保存的位置:', parsedState.scrollPosition);
+          currentScroll = parsedState.scrollPosition;
+          _scrollMethod = 'lastSavedPosition';
+        }
+
+        // 如果获取到了有效的滚动位置，更新全局缓存
+        if (
+          currentScroll > 0 &&
+          typeof window !== 'undefined' &&
+          (window as any).updateSearchPageScrollCache
+        ) {
+          try {
+            (window as any).updateSearchPageScrollCache(currentScroll);
+            // console.log('[VideoCard点击] 已更新全局滚动位置缓存:', currentScroll);
+          } catch (error) {
+            // console.warn('[VideoCard点击] 更新全局缓存失败:', error);
+          }
+        }
+
+        // console.log('[VideoCard点击] 滚动位置信息:', {
+        //   isIOS,
+        //   scrollMethod,
+        //   currentScroll,
+        //   windowScrollY: typeof window.scrollY === 'number' ? window.scrollY : 'undefined',
+        //   documentScrollTop: document.documentElement?.scrollTop || 0,
+        //   bodyScrollTop: document.body?.scrollTop || 0,
+        //   scrollingElementScrollTop: (document.scrollingElement || document.documentElement || document.body)?.scrollTop || 0
+        // });
 
         parsedState.scrollPosition = currentScroll;
         if (anchorKey) parsedState.anchorKey = anchorKey;
         parsedState.timestamp = Date.now();
         localStorage.setItem('searchPageState', JSON.stringify(parsedState));
+
+        // console.log('[VideoCard点击] localStorage已更新:', {
+        //   scrollPosition: currentScroll,
+        //   anchorKey,
+        //   timestamp: parsedState.timestamp
+        // });
       } catch (error) {
-        // 静默处理错误
+        // console.error('[VideoCard点击] 保存滚动位置失败:', error);
       }
     }
 

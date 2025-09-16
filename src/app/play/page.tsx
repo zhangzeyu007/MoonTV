@@ -160,6 +160,22 @@ function PlayPageClient() {
     'initing' | 'sourceChanging'
   >('initing');
 
+  // HLS错误状态
+  const [hlsErrorCount, setHlsErrorCount] = useState(0);
+  const [showHlsErrorTip, setShowHlsErrorTip] = useState(false);
+
+  // 监听HLS错误计数，当错误过多时显示提示
+  useEffect(() => {
+    if (hlsErrorCount > 5) {
+      setShowHlsErrorTip(true);
+      // 5秒后自动隐藏提示
+      const timer = setTimeout(() => {
+        setShowHlsErrorTip(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [hlsErrorCount]);
+
   // 播放进度保存相关
   const saveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSaveTimeRef = useRef<number>(0);
@@ -616,10 +632,16 @@ function PlayPageClient() {
   useEffect(() => {
     const markReturn = () => {
       try {
+        console.log('[播放页离开] 开始保存返回状态:', {
+          returnAnchor: returnAnchorRef.current,
+          timestamp: new Date().toISOString(),
+        });
+
         if (returnAnchorRef.current) {
           const saved = localStorage.getItem('searchPageState');
           const parsed = saved ? JSON.parse(saved) : {};
           parsed.anchorKey = returnAnchorRef.current;
+
           // 避免滚动丢失：在离开前强制读取一次滚动位置
           const se = (document.scrollingElement ||
             document.documentElement ||
@@ -631,16 +653,39 @@ function PlayPageClient() {
             : 0;
           parsed.scrollPosition = typeof y === 'number' ? y : 0;
           parsed.timestamp = Date.now();
+
+          console.log('[播放页离开] 滚动位置信息:', {
+            anchorKey: returnAnchorRef.current,
+            scrollPosition: parsed.scrollPosition,
+            scrollingElementScrollTop: se?.scrollTop || 0,
+            windowScrollY:
+              typeof window.scrollY === 'number' ? window.scrollY : 'undefined',
+            documentScrollTop: document.documentElement?.scrollTop || 0,
+            bodyScrollTop: document.body?.scrollTop || 0,
+          });
+
           localStorage.setItem('searchPageState', JSON.stringify(parsed));
           localStorage.setItem('searchReturnTrigger', String(Date.now()));
+
+          console.log('[播放页离开] localStorage已更新:', {
+            anchorKey: parsed.anchorKey,
+            scrollPosition: parsed.scrollPosition,
+            timestamp: parsed.timestamp,
+          });
+        } else {
+          console.log('[播放页离开] 没有返回锚点，跳过保存');
         }
-      } catch (_) {
-        /* ignore */
+      } catch (error) {
+        console.error('[播放页离开] 保存返回状态失败:', error);
       }
     };
+
     window.addEventListener('pagehide', markReturn);
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') markReturn();
+      if (document.visibilityState === 'hidden') {
+        console.log('[播放页离开] 页面隐藏，触发保存');
+        markReturn();
+      }
     });
     return () => {
       window.removeEventListener('pagehide', markReturn);
@@ -1155,6 +1200,22 @@ function PlayPageClient() {
               backBufferLength: 30, // 仅保留 30s 已播放内容，避免内存占用
               maxBufferSize: 60 * 1000 * 1000, // 约 60MB，超出后触发清理
 
+              /* 网络和超时配置 */
+              fragLoadingTimeOut: 20000, // 片段加载超时时间增加到20秒
+              manifestLoadingTimeOut: 10000, // manifest加载超时时间
+              levelLoadingTimeOut: 10000, // 级别加载超时时间
+              maxLoadingDelay: 4, // 最大加载延迟
+              maxBufferHole: 0.5, // 最大缓冲空洞
+              highBufferWatchdogPeriod: 2, // 高缓冲监控周期
+
+              /* 重试配置 */
+              fragLoadingMaxRetry: 6, // 片段加载最大重试次数
+              manifestLoadingMaxRetry: 4, // manifest加载最大重试次数
+              levelLoadingMaxRetry: 4, // 级别加载最大重试次数
+              fragLoadingRetryDelay: 1000, // 片段加载重试延迟
+              manifestLoadingRetryDelay: 1000, // manifest加载重试延迟
+              levelLoadingRetryDelay: 1000, // 级别加载重试延迟
+
               /* 自定义loader */
               loader: blockAdEnabledRef.current
                 ? CustomHlsJsLoader
@@ -1167,24 +1228,86 @@ function PlayPageClient() {
 
             ensureVideoSource(video, url);
 
+            // 错误重试计数器
+            let errorRetryCount = 0;
+            const maxRetries = 3;
+
             hls.on(Hls.Events.ERROR, function (event: any, data: any) {
               console.error('HLS Error:', event, data);
-              if (data.fatal) {
+
+              // 增加错误计数
+              setHlsErrorCount((prev) => prev + 1);
+
+              // 处理非致命错误
+              if (!data.fatal) {
                 switch (data.type) {
                   case Hls.ErrorTypes.NETWORK_ERROR:
-                    console.log('网络错误，尝试恢复...');
-                    hls.startLoad();
+                    if (data.details === 'fragLoadTimeOut') {
+                      console.log('片段加载超时，尝试重新加载...');
+                      // 对于超时错误，尝试重新加载
+                      hls.startLoad();
+                    } else {
+                      console.log('网络错误，尝试恢复...');
+                      hls.startLoad();
+                    }
                     break;
                   case Hls.ErrorTypes.MEDIA_ERROR:
                     console.log('媒体错误，尝试恢复...');
                     hls.recoverMediaError();
                     break;
                   default:
-                    console.log('无法恢复的错误');
-                    hls.destroy();
+                    console.log('非致命错误，继续播放...');
                     break;
                 }
+                return; // 非致命错误处理完毕，直接返回
               }
+
+              // 处理致命错误
+              if (data.fatal) {
+                errorRetryCount++;
+                console.log(
+                  `致命错误重试 ${errorRetryCount}/${maxRetries}:`,
+                  data.type,
+                  data.details
+                );
+
+                if (errorRetryCount <= maxRetries) {
+                  switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR: {
+                      console.log('致命网络错误，尝试恢复...');
+                      // 使用指数退避延迟重试
+                      const retryDelay = Math.min(
+                        1000 * Math.pow(2, errorRetryCount - 1),
+                        5000
+                      );
+                      setTimeout(() => {
+                        hls.startLoad();
+                      }, retryDelay);
+                      break;
+                    }
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                      console.log('致命媒体错误，尝试恢复...');
+                      hls.recoverMediaError();
+                      break;
+                    default:
+                      console.log('无法恢复的致命错误');
+                      hls.destroy();
+                      break;
+                  }
+                } else {
+                  console.error('达到最大重试次数，停止重试');
+                  hls.destroy();
+                }
+              }
+            });
+
+            // 监听成功事件，重置错误计数器
+            hls.on(Hls.Events.FRAG_LOADED, function () {
+              errorRetryCount = 0; // 重置错误计数器
+            });
+
+            hls.on(Hls.Events.LEVEL_LOADED, function () {
+              errorRetryCount = 0; // 重置错误计数器
             });
           },
         },
@@ -1602,6 +1725,27 @@ function PlayPageClient() {
                             : '🔄 视频加载中...'}
                         </p>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* HLS错误提示 */}
+                {showHlsErrorTip && (
+                  <div className='absolute top-4 right-4 bg-orange-500/90 backdrop-blur-sm text-white px-4 py-2 rounded-lg shadow-lg z-[600] transition-all duration-300'>
+                    <div className='flex items-center space-x-2'>
+                      <span className='text-sm'>⚠️</span>
+                      <div>
+                        <p className='text-sm font-medium'>网络不稳定</p>
+                        <p className='text-xs opacity-90'>
+                          正在尝试恢复播放...
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setShowHlsErrorTip(false)}
+                        className='ml-2 text-white/80 hover:text-white'
+                      >
+                        ✕
+                      </button>
                     </div>
                   </div>
                 )}
