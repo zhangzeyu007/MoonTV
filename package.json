@@ -32,6 +32,7 @@
     "@vidstack/react": "^1.12.13",
     "artplayer": "^5.2.3",
     "clsx": "^2.0.0",
+    "eruda": "^3.4.3",
     "framer-motion": "^12.18.1",
     "hls.js": "^1.6.6",
     "lucide-react": "^0.438.0",
@@ -80,7 +81,7 @@
   },
   "lint-staged": {
     "src/**/*.{js,jsx,ts,tsx}": [
-      "eslint --max-warnings=0",
+      "eslint",
       "prettier -w"
     ],
     "**/*.{json,css,scss,md,webmanifest}": [

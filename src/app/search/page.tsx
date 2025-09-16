@@ -44,6 +44,36 @@ function SearchPageClient() {
     number | null
   >(null);
 
+  // 调试开关（与“启用调试控制台”联动）
+  const debugEnabledRef = useRef(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const readFlag = () => {
+      try {
+        const flag = localStorage.getItem('enableDebugConsole');
+        debugEnabledRef.current = flag ? JSON.parse(flag) : false;
+      } catch (_) {
+        debugEnabledRef.current = false;
+      }
+    };
+    readFlag();
+    const onLocalStorageChange = (e: CustomEvent) => {
+      if ((e as any).detail?.key === 'enableDebugConsole') {
+        readFlag();
+      }
+    };
+    window.addEventListener(
+      'localStorageChange',
+      onLocalStorageChange as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        'localStorageChange',
+        onLocalStorageChange as EventListener
+      );
+    };
+  }, []);
+
   // iOS 检测
   const isIOS = useMemo(() => {
     if (typeof navigator === 'undefined') return false;
@@ -189,6 +219,22 @@ function SearchPageClient() {
 
       const performScroll = () => {
         try {
+          if (debugEnabledRef.current) {
+            console.log('[搜索页][滚动恢复-开始]', {
+              isIOS,
+              anchorKey,
+              target,
+              windowScrollY:
+                typeof window.scrollY === 'number'
+                  ? window.scrollY
+                  : 'undefined',
+              documentScrollTop: document.documentElement?.scrollTop || 0,
+              bodyScrollTop: document.body?.scrollTop || 0,
+              scrollingElementScrollTop:
+                document.scrollingElement?.scrollTop || 0,
+              ts: new Date().toISOString(),
+            });
+          }
           // 先锚点定位（如果有）
           if (anchorKey) {
             const el = document.querySelector(
@@ -209,6 +255,26 @@ function SearchPageClient() {
               setScrollTop(target);
             }
           }
+
+          // 滚动后延迟校验位置
+          setTimeout(() => {
+            if (debugEnabledRef.current) {
+              console.log('[搜索页][滚动恢复-结束]', {
+                isIOS,
+                anchorKey,
+                target,
+                windowScrollY:
+                  typeof window.scrollY === 'number'
+                    ? window.scrollY
+                    : 'undefined',
+                documentScrollTop: document.documentElement?.scrollTop || 0,
+                bodyScrollTop: document.body?.scrollTop || 0,
+                scrollingElementScrollTop:
+                  document.scrollingElement?.scrollTop || 0,
+                ts: new Date().toISOString(),
+              });
+            }
+          }, 100);
         } catch (_) {
           /* ignore */
         }
@@ -220,10 +286,21 @@ function SearchPageClient() {
           `[data-search-key="${anchorKey}"]`
         ) as HTMLElement | null;
         if (el) {
+          if (debugEnabledRef.current) {
+            console.log('[搜索页][滚动恢复-元素已存在，直接滚动]', {
+              anchorKey,
+              target,
+            });
+          }
           performScroll();
           return;
         }
       } else if (typeof target === 'number') {
+        if (debugEnabledRef.current) {
+          console.log('[搜索页][滚动恢复-无锚点，使用目标位置]', {
+            target,
+          });
+        }
         performScroll();
         return;
       }
@@ -237,6 +314,13 @@ function SearchPageClient() {
             `[data-search-key="${anchorKey}"]`
           ) as HTMLElement | null;
           if (el || attempts >= maxAttempts) {
+            if (debugEnabledRef.current) {
+              console.log('[搜索页][滚动恢复-等待完成]', {
+                anchorKey,
+                attempts,
+                found: !!el,
+              });
+            }
             performScroll();
             return;
           }
@@ -448,6 +532,65 @@ function SearchPageClient() {
       window.removeEventListener('load', updateInitialScrollPosition);
     };
   }, [saveScrollPosition, isIOS, getCurrentScrollPosition]);
+
+  // 调试：滚动过程信息打印（仅在启用调试时输出，节流）
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let ticking = false;
+    let lastLogTs = 0;
+    let lastPos = 0;
+    const logInterval = 300; // ms
+
+    const onScrollDebug = () => {
+      if (!debugEnabledRef.current) return;
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(() => {
+          const now = Date.now();
+          if (now - lastLogTs >= logInterval) {
+            const scrollMethods = [
+              {
+                name: 'window.scrollY',
+                value: typeof window.scrollY === 'number' ? window.scrollY : 0,
+              },
+              {
+                name: 'document.documentElement.scrollTop',
+                value: document.documentElement?.scrollTop || 0,
+              },
+              {
+                name: 'document.body.scrollTop',
+                value: document.body?.scrollTop || 0,
+              },
+              {
+                name: 'document.scrollingElement.scrollTop',
+                value: document.scrollingElement?.scrollTop || 0,
+              },
+            ];
+            const values = scrollMethods.map((m) => m.value);
+            const current = Math.max(...values);
+            const delta = current - lastPos;
+            lastPos = current;
+
+            console.log('[搜索页][滚动中]', {
+              isIOS,
+              current,
+              delta,
+              methods: scrollMethods,
+              ts: new Date().toISOString(),
+            });
+            lastLogTs = now;
+          }
+          ticking = false;
+        });
+      }
+    };
+
+    window.addEventListener('scroll', onScrollDebug, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScrollDebug as EventListener);
+    };
+  }, [isIOS]);
 
   // 从本地存储恢复搜索状态
   const restoreSearchState = useCallback(() => {
@@ -817,6 +960,21 @@ function SearchPageClient() {
       const isBackNavigation = detectNavigationBack();
 
       if (isBackNavigation && savedState) {
+        // 关键调试：返回搜索页时的初始参数
+        console.log('[搜索页][初始化][返回] 恢复状态参数', {
+          isIOS,
+          urlQuery,
+          isBackNavigation,
+          savedQuery: savedState?.query,
+          savedResults: Array.isArray(savedState?.results)
+            ? savedState.results.length
+            : 0,
+          savedShowResults: !!savedState?.showResults,
+          savedViewMode: savedState?.viewMode,
+          savedSelectedResources: savedState?.selectedResources?.length || 0,
+          savedScrollPosition: savedState?.scrollPosition || 0,
+          ts: new Date().toISOString(),
+        });
         // 从详情页返回，优先恢复保存的状态
         setSearchQuery(savedState.query || '');
         setSearchResults(savedState.results || []);
@@ -837,6 +995,16 @@ function SearchPageClient() {
           savedState.scrollPosition > 0
         ) {
           setPendingScrollPosition(savedState.scrollPosition);
+          // 关键调试：记录待恢复的滚动位置
+          console.log('[搜索页][初始化][返回] 设定待恢复滚动位置', {
+            pendingScrollPosition: savedState.scrollPosition,
+            windowScrollY:
+              typeof window.scrollY === 'number' ? window.scrollY : 'undefined',
+            documentScrollTop: document.documentElement?.scrollTop || 0,
+            bodyScrollTop: document.body?.scrollTop || 0,
+            scrollingElementScrollTop:
+              document.scrollingElement?.scrollTop || 0,
+          });
         }
 
         // 从详情页返回时，需要刷新数据但保持滚动位置
@@ -1035,14 +1203,21 @@ function SearchPageClient() {
   // 统一的滚动位置恢复逻辑（使用 useLayoutEffect 提前于绘制）
   useLayoutEffect(() => {
     if (pendingScrollPosition !== null) {
-      // console.log('[滚动位置恢复] 开始恢复滚动位置:', {
-      //   pendingScrollPosition,
-      //   isIOS,
-      //   documentReadyState: document.readyState,
-      //   showResults,
-      //   searchResultsLength: searchResults.length,
-      //   timestamp: new Date().toISOString()
-      // });
+      // 关键调试：开始进行滚动恢复
+      console.log('[搜索页][滚动恢复] 开始', {
+        pendingScrollPosition,
+        isIOS,
+        documentReadyState: document.readyState,
+        showResults,
+        searchResultsLength: searchResults.length,
+        currentWindowScrollY:
+          typeof window.scrollY === 'number' ? window.scrollY : 'undefined',
+        currentDocumentScrollTop: document.documentElement?.scrollTop || 0,
+        currentBodyScrollTop: document.body?.scrollTop || 0,
+        currentScrollingElementScrollTop:
+          document.scrollingElement?.scrollTop || 0,
+        ts: new Date().toISOString(),
+      });
 
       const getMaxScrollTop = () =>
         Math.max(
@@ -1055,14 +1230,15 @@ function SearchPageClient() {
         Math.min(pendingScrollPosition, getMaxScrollTop())
       );
 
-      // console.log('[滚动位置恢复] 计算目标位置:', {
-      //   originalPosition: pendingScrollPosition,
-      //   maxScrollTop: getMaxScrollTop(),
-      //   targetPosition,
-      //   documentHeight: document.documentElement.scrollHeight,
-      //   bodyHeight: document.body.scrollHeight,
-      //   windowHeight: window.innerHeight
-      // });
+      // 关键调试：输出计算得到的目标位置
+      console.log('[搜索页][滚动恢复] 目标位置计算', {
+        originalPosition: pendingScrollPosition,
+        maxScrollTop: getMaxScrollTop(),
+        targetPosition,
+        documentHeight: document.documentElement.scrollHeight,
+        bodyHeight: document.body.scrollHeight,
+        windowHeight: window.innerHeight,
+      });
 
       if (targetPosition === 0) {
         // console.log('[滚动位置恢复] 目标位置为0，跳过恢复');
@@ -1073,11 +1249,12 @@ function SearchPageClient() {
       if (isIOS) {
         // iOS端简化滚动恢复逻辑
         const restoreScrollIOS = () => {
-          // console.log('[滚动位置恢复] iOS开始恢复:', {
-          //   targetPosition,
-          //   currentScrollY: window.scrollY,
-          //   currentScrollTop: getScrollingElement()?.scrollTop || 0
-          // });
+          // 关键调试：iOS 恢复开始
+          console.log('[搜索页][滚动恢复][iOS] 开始', {
+            targetPosition,
+            currentScrollY: window.scrollY,
+            currentScrollTop: getScrollingElement()?.scrollTop || 0,
+          });
 
           // 移除焦点避免干扰
           try {
@@ -1120,7 +1297,9 @@ function SearchPageClient() {
             document.documentElement.scrollTop = targetPosition;
           }
 
-          // console.log('[滚动位置恢复] iOS已执行多种滚动方法:', targetPosition);
+          console.log('[搜索页][滚动恢复][iOS] 已执行多种滚动方法', {
+            targetPosition,
+          });
 
           // 更新缓存
           currentScrollPositionRef.current = targetPosition;
@@ -1158,17 +1337,17 @@ function SearchPageClient() {
             const _currentScrollTop = getScrollingElement()?.scrollTop || 0;
             const diff = Math.abs(currentPos - targetPosition);
 
-            // console.log('[滚动位置恢复] iOS验证结果:', {
-            //   targetPosition,
-            //   currentPos,
-            //   currentScrollTop,
-            //   diff,
-            //   success: diff <= 10,
-            //   scrollMethods: scrollMethods.map(m => ({ name: m.name, value: m.value }))
-            // });
+            console.log('[搜索页][滚动恢复][iOS] 验证结果', {
+              targetPosition,
+              currentPos,
+              currentScrollTop: _currentScrollTop,
+              diff,
+              success: diff <= 10,
+              methods: scrollMethods,
+            });
 
             if (diff > 10) {
-              // console.log('[滚动位置恢复] iOS重试滚动');
+              console.log('[搜索页][滚动恢复][iOS] 需要重试滚动');
               // 使用多种方法确保滚动成功
               window.scrollTo({ top: targetPosition, behavior: 'auto' });
               if (document.body) document.body.scrollTop = targetPosition;
@@ -1206,17 +1385,17 @@ function SearchPageClient() {
                     : Math.max(...retryScrollMethods.map((m) => m.value));
                 const finalDiff = Math.abs(finalPos - targetPosition);
 
-                // console.log('[滚动位置恢复] iOS最终结果:', {
-                //   targetPosition,
-                //   finalPos,
-                //   finalDiff,
-                //   success: finalDiff <= 10,
-                //   retryScrollMethods: retryScrollMethods.map(m => ({ name: m.name, value: m.value }))
-                // });
+                console.log('[搜索页][滚动恢复][iOS] 最终结果', {
+                  targetPosition,
+                  finalPos,
+                  finalDiff,
+                  success: finalDiff <= 10,
+                  methods: retryScrollMethods,
+                });
 
                 // 如果仍然失败，尝试最后一次强制滚动
                 if (finalDiff > 10) {
-                  // console.log('[滚动位置恢复] iOS最后一次强制滚动尝试');
+                  console.log('[搜索页][滚动恢复][iOS] 最后一次强制滚动尝试');
 
                   // 尝试多种强制滚动方法
                   try {

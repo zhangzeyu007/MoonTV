@@ -201,12 +201,13 @@ export default function VideoCard({
     // 如果是从搜索页面跳转，保存当前滚动位置
     if (from === 'search' && typeof window !== 'undefined') {
       try {
-        // console.log('[VideoCard点击] 开始保存滚动位置:', {
-        //   title,
-        //   anchorKey,
-        //   from,
-        //   timestamp: new Date().toISOString()
-        // });
+        // 关键调试：点击卡片准备跳转，记录当前滚动与锚点
+        console.log('[搜索页][VideoCard][点击] 准备跳转，保存滚动', {
+          title,
+          anchorKey,
+          from,
+          ts: new Date().toISOString(),
+        });
 
         // 在iOS上，先尝试强制获取一次滚动位置
         const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -217,7 +218,7 @@ export default function VideoCard({
 
           // 短暂延迟，让滚动事件处理完成
           setTimeout(() => {
-            // console.log('[VideoCard点击] iOS强制滚动事件已触发');
+            console.log('[搜索页][VideoCard][点击] iOS强制scroll事件已触发');
           }, 10);
         }
 
@@ -236,9 +237,12 @@ export default function VideoCard({
           try {
             currentScroll = (window as any).getSearchPageScrollPosition();
             _scrollMethod = 'searchPageGlobalFunction';
-            // console.log('[VideoCard点击] 使用搜索页面全局函数获取滚动位置:', currentScroll);
+            console.log(
+              '[搜索页][VideoCard][点击] 使用全局函数获取滚动',
+              currentScroll
+            );
           } catch (error) {
-            // console.warn('[VideoCard点击] 全局函数获取失败:', error);
+            console.warn('[搜索页][VideoCard][点击] 全局函数获取失败', error);
           }
         }
 
@@ -282,7 +286,10 @@ export default function VideoCard({
 
         // 特殊处理：如果所有方法都返回0，但页面明显有滚动内容，尝试从localStorage获取上次保存的位置
         if (currentScroll === 0 && parsedState.scrollPosition > 0) {
-          // console.log('[VideoCard点击] 所有滚动检测方法返回0，尝试使用上次保存的位置:', parsedState.scrollPosition);
+          console.log(
+            '[搜索页][VideoCard][点击] 所有方法为0，使用上次保存位置',
+            parsedState.scrollPosition
+          );
           currentScroll = parsedState.scrollPosition;
           _scrollMethod = 'lastSavedPosition';
         }
@@ -295,34 +302,44 @@ export default function VideoCard({
         ) {
           try {
             (window as any).updateSearchPageScrollCache(currentScroll);
-            // console.log('[VideoCard点击] 已更新全局滚动位置缓存:', currentScroll);
+            console.log(
+              '[搜索页][VideoCard][点击] 已更新全局滚动缓存',
+              currentScroll
+            );
           } catch (error) {
-            // console.warn('[VideoCard点击] 更新全局缓存失败:', error);
+            console.warn('[搜索页][VideoCard][点击] 更新全局缓存失败', error);
           }
         }
 
-        // console.log('[VideoCard点击] 滚动位置信息:', {
-        //   isIOS,
-        //   scrollMethod,
-        //   currentScroll,
-        //   windowScrollY: typeof window.scrollY === 'number' ? window.scrollY : 'undefined',
-        //   documentScrollTop: document.documentElement?.scrollTop || 0,
-        //   bodyScrollTop: document.body?.scrollTop || 0,
-        //   scrollingElementScrollTop: (document.scrollingElement || document.documentElement || document.body)?.scrollTop || 0
-        // });
+        // 关键调试：本次保存的滚动与采用的方法
+        console.log('[搜索页][VideoCard][点击] 滚动位置信息', {
+          isIOS,
+          method: _scrollMethod,
+          currentScroll,
+          windowScrollY:
+            typeof window.scrollY === 'number' ? window.scrollY : 'undefined',
+          documentScrollTop: document.documentElement?.scrollTop || 0,
+          bodyScrollTop: document.body?.scrollTop || 0,
+          scrollingElementScrollTop:
+            (
+              document.scrollingElement ||
+              document.documentElement ||
+              document.body
+            )?.scrollTop || 0,
+        });
 
         parsedState.scrollPosition = currentScroll;
         if (anchorKey) parsedState.anchorKey = anchorKey;
         parsedState.timestamp = Date.now();
         localStorage.setItem('searchPageState', JSON.stringify(parsedState));
 
-        // console.log('[VideoCard点击] localStorage已更新:', {
-        //   scrollPosition: currentScroll,
-        //   anchorKey,
-        //   timestamp: parsedState.timestamp
-        // });
+        console.log('[搜索页][VideoCard][点击] localStorage已更新', {
+          scrollPosition: currentScroll,
+          anchorKey,
+          timestamp: parsedState.timestamp,
+        });
       } catch (error) {
-        // console.error('[VideoCard点击] 保存滚动位置失败:', error);
+        console.error('[搜索页][VideoCard][点击] 保存滚动失败', error);
       }
     }
 

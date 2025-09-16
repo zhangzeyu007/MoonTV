@@ -21,6 +21,7 @@ export const SettingsButton: React.FC = () => {
   >([]);
   const [resourcesLoading, setResourcesLoading] = useState(false);
   const [resourcesError, setResourcesError] = useState<string | null>(null);
+  const [enableDebugConsole, setEnableDebugConsole] = useState(false);
 
   // 确保组件已挂载
   useEffect(() => {
@@ -86,6 +87,12 @@ export const SettingsButton: React.FC = () => {
         localStorage.getItem('enableOptimization');
       if (savedEnableOptimization !== null) {
         setEnableOptimization(JSON.parse(savedEnableOptimization));
+      }
+
+      const savedEnableDebugConsole =
+        localStorage.getItem('enableDebugConsole');
+      if (savedEnableDebugConsole !== null) {
+        setEnableDebugConsole(JSON.parse(savedEnableDebugConsole));
       }
 
       // 读取指定资源选择
@@ -195,6 +202,58 @@ export const SettingsButton: React.FC = () => {
     setEnableOptimization(value);
     if (typeof window !== 'undefined') {
       localStorage.setItem('enableOptimization', JSON.stringify(value));
+    }
+  };
+
+  const handleDebugConsoleToggle = (value: boolean) => {
+    setEnableDebugConsole(value);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('enableDebugConsole', JSON.stringify(value));
+      window.dispatchEvent(
+        new CustomEvent('localStorageChange', {
+          detail: { key: 'enableDebugConsole', value },
+        })
+      );
+    }
+  };
+
+  const handleCopyLogs = async () => {
+    try {
+      const logs = (window as any).__APP_LOGS || [];
+      const text = logs
+        .map(
+          (l: any) =>
+            `[${new Date(l.time).toISOString()}] ${l.level.toUpperCase()} | ${
+              l.msg
+            }`
+        )
+        .join('\n');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      // 轻提示：不引入额外库，仅控制台提示
+      // eslint-disable-next-line no-console
+      console.info('日志已复制到剪贴板');
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('复制日志失败', e);
+    }
+  };
+
+  const handleClearLogs = () => {
+    try {
+      (window as any).__APP_LOGS = [];
+      // eslint-disable-next-line no-console
+      console.info('已清空本地日志');
+    } catch (_) {
+      // ignore
     }
   };
 
@@ -335,6 +394,55 @@ export const SettingsButton: React.FC = () => {
 
         {/* 设置项容器 - 支持滚动但隐藏滚动条 */}
         <div className='overflow-y-auto flex-grow p-6 hide-scrollbar space-y-8'>
+          {/* 调试控制台 */}
+          <div className='flex items-center justify-between'>
+            <div>
+              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                启用调试控制台
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                开启后在移动端/真机上显示调试面板（eruda），便于查看日志
+              </p>
+            </div>
+            <label className='flex items-center cursor-pointer'>
+              <div className='relative'>
+                <input
+                  type='checkbox'
+                  className='sr-only peer'
+                  checked={enableDebugConsole}
+                  onChange={(e) => handleDebugConsoleToggle(e.target.checked)}
+                />
+                <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
+              </div>
+            </label>
+          </div>
+
+          {/* 日志操作 */}
+          <div className='flex items-center justify-between'>
+            <div>
+              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                日志操作
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                复制当前会话控制台日志，或清空本地缓存的日志
+              </p>
+            </div>
+            <div className='flex gap-2'>
+              <button
+                onClick={handleCopyLogs}
+                className='px-3 py-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 border border-blue-200 hover:border-blue-300 dark:border-blue-800 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors'
+              >
+                复制日志
+              </button>
+              <button
+                onClick={handleClearLogs}
+                className='px-3 py-1 text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 border border-red-200 hover:border-red-300 dark:border-red-800 dark:hover:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors'
+              >
+                清空日志
+              </button>
+            </div>
+          </div>
           {/* 默认聚合搜索结果 */}
           <div className='flex items-center justify-between'>
             <div>
