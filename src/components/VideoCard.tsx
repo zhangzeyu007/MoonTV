@@ -201,6 +201,18 @@ export default function VideoCard({
     // 如果是从搜索页面跳转，保存当前滚动位置
     if (from === 'search' && typeof window !== 'undefined') {
       try {
+        // 设置导航标记，避免返回前的异步 save 覆盖更大值
+        try {
+          (window as any).__SEARCH_NAV_LOCK__ = {
+            active: true,
+            at: Date.now(),
+            anchorKey,
+          };
+          console.log('[搜索页][VideoCard][点击] 已设置导航锁');
+        } catch (_) {
+          /* noop: ensure eslint no-empty satisfied */
+        }
+
         // 关键调试：点击卡片准备跳转，记录当前滚动与锚点
         console.log('[搜索页][VideoCard][点击] 准备跳转，保存滚动', {
           title,

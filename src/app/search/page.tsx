@@ -47,6 +47,16 @@ function SearchPageClient() {
   // 调试开关（与“启用调试控制台”联动）
   const debugEnabledRef = useRef(false);
   useEffect(() => {
+    // 清理导航锁，避免停留状态导致后续保存被误跳过
+    try {
+      if ((window as any).__SEARCH_NAV_LOCK__?.active) {
+        console.log('[搜索页] 挂载时清理导航锁');
+        (window as any).__SEARCH_NAV_LOCK__ = { active: false };
+      }
+    } catch (_) {
+      /* noop: ensure eslint no-empty satisfied */
+    }
+
     if (typeof window === 'undefined') return;
     const readFlag = () => {
       try {
@@ -360,6 +370,13 @@ function SearchPageClient() {
   const saveSearchState = useCallback(() => {
     if (typeof window === 'undefined') return;
 
+    // 导航锁：若在跳转流程中，避免保存小值覆盖
+    const navLock = (window as any).__SEARCH_NAV_LOCK__;
+    if (navLock?.active) {
+      console.log('[搜索页][状态保存] 检测到导航锁，跳过保存', navLock);
+      return;
+    }
+
     const currentScrollY = getScrollTop();
 
     const searchState = {
@@ -373,6 +390,30 @@ function SearchPageClient() {
     };
 
     try {
+      // 小值回写保护：已有更大有效值时，避免以小值覆盖
+      try {
+        const prev = localStorage.getItem('searchPageState');
+        const prevParsed = prev ? JSON.parse(prev) : {};
+        const prevScroll =
+          typeof prevParsed.scrollPosition === 'number'
+            ? prevParsed.scrollPosition
+            : 0;
+        if (
+          prevScroll > 0 &&
+          currentScrollY > 0 &&
+          currentScrollY < 200 &&
+          prevScroll > currentScrollY + 200
+        ) {
+          console.log('[搜索页][状态保存] 小值回写被忽略', {
+            prevScroll,
+            currentScrollY,
+          });
+          return;
+        }
+      } catch (_) {
+        /* noop: ensure eslint no-empty satisfied */
+      }
+
       localStorage.setItem('searchPageState', JSON.stringify(searchState));
     } catch (error) {
       // 静默处理错误
@@ -391,6 +432,13 @@ function SearchPageClient() {
     if (typeof window === 'undefined') return;
 
     try {
+      // 如果存在导航锁，跳过保存，避免覆盖点击时记录的更大值
+      const navLock = (window as any).__SEARCH_NAV_LOCK__;
+      if (navLock?.active) {
+        console.log('[搜索页][滚动保存] 检测到导航锁，跳过保存', navLock);
+        return;
+      }
+
       const currentState = localStorage.getItem('searchPageState');
       const parsedState = currentState ? JSON.parse(currentState) : {};
 
@@ -432,6 +480,24 @@ function SearchPageClient() {
 
       // 更新实时缓存
       currentScrollPositionRef.current = currentScroll;
+
+      // 保护：若当前滚动极小且已有更大有效值，避免被小值回写
+      const prevSaved =
+        typeof parsedState.scrollPosition === 'number'
+          ? parsedState.scrollPosition
+          : 0;
+      if (
+        prevSaved > 0 &&
+        currentScroll > 0 &&
+        currentScroll < 200 &&
+        prevSaved > currentScroll + 200
+      ) {
+        console.log('[搜索页][滚动保存] 小值回写被忽略', {
+          prevSaved,
+          currentScroll,
+        });
+        return;
+      }
 
       // 添加调试日志
       // console.log('[滚动位置保存]', {
@@ -1263,7 +1329,7 @@ function SearchPageClient() {
               // console.log('[滚动位置恢复] 已移除焦点');
             }
           } catch (_) {
-            /* ignore */
+            /* noop: ignore anchor scroll failure */
           }
 
           // 先尝试锚点定位
@@ -1278,6 +1344,12 @@ function SearchPageClient() {
               if (anchorEl) {
                 anchorEl.scrollIntoView({ block: 'start', behavior: 'auto' });
                 didAnchorScroll = true;
+                console.log(
+                  '[搜索页][滚动恢复][iOS] 锚点定位成功，跳过数值滚动',
+                  {
+                    anchorKey: parsed.anchorKey,
+                  }
+                );
               }
             }
           } catch (_) {
