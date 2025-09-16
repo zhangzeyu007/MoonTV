@@ -44,12 +44,11 @@ function SearchPageClient() {
     number | null
   >(null);
 
-  // iOS 与 bfcache 兼容性处理
+  // iOS 检测
   const isIOS = useMemo(() => {
     if (typeof navigator === 'undefined') return false;
     return /iPhone|iPad|iPod/i.test(navigator.userAgent);
   }, []);
-  const isBFCacheRef = useRef(false);
 
   // 使用ref存储最新的搜索参数，避免闭包问题
   const searchQueryRef = useRef(searchQuery);
@@ -82,32 +81,38 @@ function SearchPageClient() {
     (y: number) => {
       if (typeof window === 'undefined') return;
       const el = getScrollingElement();
-      // iOS: 临时禁用平滑滚动以避免 UA/CSS 干扰
-      const htmlEl =
-        typeof document !== 'undefined'
-          ? (document.documentElement as HTMLElement)
-          : null;
-      let prevBehavior: string | null = null;
-      try {
-        if (isIOS && htmlEl) {
-          prevBehavior = htmlEl.style.scrollBehavior || null;
-          htmlEl.style.scrollBehavior = 'auto';
+
+      if (isIOS) {
+        // iOS: 使用window.scrollTo，禁用平滑滚动
+        window.scrollTo({ top: y, behavior: 'auto' });
+      } else {
+        // PC端: 恢复原有逻辑，临时禁用平滑滚动以避免 UA/CSS 干扰
+        const htmlEl =
+          typeof document !== 'undefined'
+            ? (document.documentElement as HTMLElement)
+            : null;
+        let prevBehavior: string | null = null;
+        try {
+          if (htmlEl) {
+            prevBehavior = htmlEl.style.scrollBehavior || null;
+            htmlEl.style.scrollBehavior = 'auto';
+          }
+        } catch (_) {
+          /* ignore */
         }
-      } catch (_) {
-        /* ignore */
-      }
-      if (el) el.scrollTop = y;
-      // 兜底一次，避免某些 WebKit 场景忽略 scrollTop 赋值
-      window.scrollTo(0, y);
-      // 还原 scroll-behavior 设置
-      try {
-        if (isIOS && htmlEl) {
-          if (prevBehavior === null)
-            htmlEl.style.removeProperty('scroll-behavior');
-          else htmlEl.style.scrollBehavior = prevBehavior;
+        if (el) el.scrollTop = y;
+        // 兜底一次，避免某些 WebKit 场景忽略 scrollTop 赋值
+        window.scrollTo(0, y);
+        // 还原 scroll-behavior 设置
+        try {
+          if (htmlEl) {
+            if (prevBehavior === null)
+              htmlEl.style.removeProperty('scroll-behavior');
+            else htmlEl.style.scrollBehavior = prevBehavior;
+          }
+        } catch (_) {
+          /* ignore */
         }
-      } catch (_) {
-        /* ignore */
       }
     },
     [getScrollingElement, isIOS]
@@ -148,9 +153,17 @@ function SearchPageClient() {
       const elNow = anchorKey ? tryLocate() : null;
       if (elNow || (!anchorKey && typeof target === 'number')) {
         performScroll();
-        [120, 300, 600, 1000, 1500, 2000, 2500].forEach((t) =>
-          setTimeout(performScroll, t)
-        );
+        if (isIOS) {
+          // iOS需要更多重试
+          [120, 300, 600, 1000, 1500, 2000, 2500].forEach((t) =>
+            setTimeout(performScroll, t)
+          );
+        } else {
+          // PC端保持原有重试次数
+          [120, 300, 600, 1000, 1500, 2000].forEach((t) =>
+            setTimeout(performScroll, t)
+          );
+        }
         return;
       }
 
@@ -165,9 +178,17 @@ function SearchPageClient() {
         if (el || elapsed >= maxWait) {
           if (observer) observer.disconnect();
           performScroll();
-          [120, 300, 600, 1000, 1500, 2000].forEach((t) =>
-            setTimeout(performScroll, t)
-          );
+          if (isIOS) {
+            // iOS需要更多重试
+            [120, 300, 600, 1000, 1500, 2000].forEach((t) =>
+              setTimeout(performScroll, t)
+            );
+          } else {
+            // PC端保持原有重试次数
+            [120, 300, 600, 1000, 1500].forEach((t) =>
+              setTimeout(performScroll, t)
+            );
+          }
           return;
         }
         elapsed += interval;
@@ -180,9 +201,17 @@ function SearchPageClient() {
           if (el) {
             if (observer) observer.disconnect();
             performScroll();
-            [120, 300, 600, 1000, 1500, 2000].forEach((t) =>
-              setTimeout(performScroll, t)
-            );
+            if (isIOS) {
+              // iOS需要更多重试
+              [120, 300, 600, 1000, 1500, 2000].forEach((t) =>
+                setTimeout(performScroll, t)
+              );
+            } else {
+              // PC端保持原有重试次数
+              [120, 300, 600, 1000, 1500].forEach((t) =>
+                setTimeout(performScroll, t)
+              );
+            }
           }
         });
         observer.observe(document.documentElement, {
@@ -194,7 +223,7 @@ function SearchPageClient() {
       }
       tick();
     },
-    [setScrollTop]
+    [setScrollTop, isIOS]
   );
 
   // 获取默认聚合设置：只读取用户本地设置，默认为 true
@@ -1047,7 +1076,7 @@ function SearchPageClient() {
     (target: number) => {
       if (typeof window === 'undefined' || typeof document === 'undefined')
         return;
-      const maxAttempts = 120; // ~120帧，约1.9s
+      const maxAttempts = isIOS ? 120 : 40; // iOS需要更多重试
       let attempts = 0;
       const tolerance = 8;
       const getMaxScrollTop = () =>
@@ -1077,12 +1106,13 @@ function SearchPageClient() {
         requestAnimationFrame(trySet);
       }
     },
-    [setScrollTop, getScrollTop]
+    [setScrollTop, getScrollTop, isIOS]
   );
 
   // 处理 bfcache（返回缓存）场景，确保从播放页返回时也能恢复
   useEffect(() => {
     const unlockIOSInteraction = () => {
+      if (!isIOS) return; // 只在iOS上执行
       try {
         const htmlEl = document.documentElement as HTMLElement;
         const bodyEl = document.body as HTMLElement;
@@ -1129,8 +1159,6 @@ function SearchPageClient() {
       }
     };
 
-    // forceRestoreScroll 已上移到组件作用域
-
     const restoreFromStorage = (e?: PageTransitionEvent) => {
       const doRestore = () => {
         try {
@@ -1147,7 +1175,6 @@ function SearchPageClient() {
 
       if (isIOS && e && 'persisted' in e && (e as any).persisted) {
         // iOS 返回缓存：先解锁，再恢复滚动位置
-        isBFCacheRef.current = false;
         requestAnimationFrame(() => {
           unlockIOSInteraction();
           requestAnimationFrame(doRestore);
@@ -1202,7 +1229,41 @@ function SearchPageClient() {
       window.removeEventListener('pageshow', onPageShow);
       window.removeEventListener('popstate', onPopState);
     };
-  }, []);
+  }, [anchorThenScroll, isIOS]);
+
+  // iOS: 页面再次可见时再尝试一次锚点 + 强制滚动的恢复（额外兜底，不影响 PC）
+  useEffect(() => {
+    if (!isIOS) return; // 只在iOS上执行
+
+    const attemptOnVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const saved = localStorage.getItem('searchPageState');
+        if (!saved) return;
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.anchorKey) {
+          const el = document.querySelector(
+            `[data-search-key="${parsed.anchorKey}"]`
+          ) as HTMLElement | null;
+          if (el) {
+            try {
+              el.scrollIntoView({ block: 'start', behavior: 'auto' });
+            } catch (_) {
+              el.scrollIntoView({ block: 'start' as any });
+            }
+          }
+        }
+        if (parsed && parsed.scrollPosition > 0) {
+          forceRestoreScroll(parsed.scrollPosition);
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    };
+    document.addEventListener('visibilitychange', attemptOnVisible);
+    return () =>
+      document.removeEventListener('visibilitychange', attemptOnVisible);
+  }, [forceRestoreScroll, isIOS]);
 
   // 监听页面可见性变化，确保从详情页返回时能正确恢复状态
   useEffect(() => {
@@ -1238,38 +1299,6 @@ function SearchPageClient() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isInitialized, hasRestoredState, restoreSearchState]);
-
-  // iOS: 页面再次可见时再尝试一次锚点 + 强制滚动的恢复（额外兜底，不影响 PC）
-  useEffect(() => {
-    const attemptOnVisible = () => {
-      if (document.visibilityState !== 'visible') return;
-      try {
-        const saved = localStorage.getItem('searchPageState');
-        if (!saved) return;
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.anchorKey) {
-          const el = document.querySelector(
-            `[data-search-key="${parsed.anchorKey}"]`
-          ) as HTMLElement | null;
-          if (el) {
-            try {
-              el.scrollIntoView({ block: 'start', behavior: 'auto' });
-            } catch (_) {
-              el.scrollIntoView({ block: 'start' as any });
-            }
-          }
-        }
-        if (parsed && parsed.scrollPosition > 0) {
-          forceRestoreScroll(parsed.scrollPosition);
-        }
-      } catch (_) {
-        /* ignore */
-      }
-    };
-    document.addEventListener('visibilitychange', attemptOnVisible);
-    return () =>
-      document.removeEventListener('visibilitychange', attemptOnVisible);
-  }, []);
 
   useEffect(() => {
     // 当搜索参数变化时更新搜索状态

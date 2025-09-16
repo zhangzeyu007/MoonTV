@@ -274,6 +274,9 @@ export default function VideoCard({
         { scroll: false }
       );
     } else if (actualSource && actualId) {
+      const sanchor = anchorKey
+        ? `&sanchor=${encodeURIComponent(anchorKey)}`
+        : '';
       router.push(
         `/play?source=${actualSource}&id=${actualId}&title=${encodeURIComponent(
           actualTitle
@@ -281,7 +284,7 @@ export default function VideoCard({
           isAggregate ? '&prefer=true' : ''
         }${
           actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
-        }${actualSearchType ? `&stype=${actualSearchType}` : ''}`,
+        }${actualSearchType ? `&stype=${actualSearchType}` : ''}${sanchor}`,
         { scroll: false }
       );
     }

@@ -66,6 +66,7 @@ function PlayPageClient() {
   const [videoTitle, setVideoTitle] = useState(searchParams.get('title') || '');
   const [videoYear, setVideoYear] = useState(searchParams.get('year') || '');
   const [videoCover, setVideoCover] = useState('');
+  const returnAnchorRef = useRef<string | null>(searchParams.get('sanchor'));
   // 当前源和ID
   const [currentSource, setCurrentSource] = useState(
     searchParams.get('source') || ''
@@ -609,6 +610,42 @@ function PlayPageClient() {
     };
 
     initAll();
+  }, []);
+
+  // 在离开播放页前，将返回锚点与当前滚动位置写入搜索页状态，提升 iOS 稳定性
+  useEffect(() => {
+    const markReturn = () => {
+      try {
+        if (returnAnchorRef.current) {
+          const saved = localStorage.getItem('searchPageState');
+          const parsed = saved ? JSON.parse(saved) : {};
+          parsed.anchorKey = returnAnchorRef.current;
+          // 避免滚动丢失：在离开前强制读取一次滚动位置
+          const se = (document.scrollingElement ||
+            document.documentElement ||
+            (document.body as HTMLElement)) as HTMLElement;
+          const y = se
+            ? se.scrollTop
+            : typeof window !== 'undefined'
+            ? window.scrollY
+            : 0;
+          parsed.scrollPosition = typeof y === 'number' ? y : 0;
+          parsed.timestamp = Date.now();
+          localStorage.setItem('searchPageState', JSON.stringify(parsed));
+          localStorage.setItem('searchReturnTrigger', String(Date.now()));
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    };
+    window.addEventListener('pagehide', markReturn);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') markReturn();
+    });
+    return () => {
+      window.removeEventListener('pagehide', markReturn);
+      document.removeEventListener('visibilitychange', markReturn);
+    };
   }, []);
 
   // 播放记录处理
