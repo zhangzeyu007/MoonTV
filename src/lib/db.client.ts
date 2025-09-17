@@ -52,6 +52,8 @@ interface UserCacheStore {
   playRecords?: CacheData<Record<string, PlayRecord>>;
   favorites?: CacheData<Record<string, Favorite>>;
   searchHistory?: CacheData<string[]>;
+  // 最近一次清空播放记录的时间戳（用于抑制短时间内的脏数据回填）
+  playRecordsClearedAt?: number;
 }
 
 // ---- 常量 ----
@@ -186,7 +188,9 @@ class HybridCacheManager {
     if (!username) return;
 
     const userCache = this.getUserCache(username);
+    const clearedAt = userCache.playRecordsClearedAt; // 保留清空标记
     userCache.playRecords = this.createCacheData(data);
+    if (clearedAt) userCache.playRecordsClearedAt = clearedAt;
     this.saveUserCache(username, userCache);
   }
 
@@ -261,6 +265,31 @@ class HybridCacheManager {
     } catch (error) {
       console.warn('清除用户缓存失败:', error);
     }
+  }
+
+  /**
+   * 记录播放记录被清空的时间
+   */
+  markPlayRecordsCleared(): void {
+    const username = this.getCurrentUsername();
+    if (!username) return;
+
+    const userCache = this.getUserCache(username);
+    userCache.playRecordsClearedAt = Date.now();
+    this.saveUserCache(username, userCache);
+  }
+
+  /**
+   * 判断播放记录是否在最近一段时间被清空
+   */
+  isPlayRecordsRecentlyCleared(windowMs = 5000): boolean {
+    const username = this.getCurrentUsername();
+    if (!username) return false;
+
+    const userCache = this.getUserCache(username);
+    if (!userCache.playRecordsClearedAt) return false;
+
+    return Date.now() - userCache.playRecordsClearedAt < windowMs;
   }
 
   /**
@@ -393,6 +422,15 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
       // 返回缓存数据，同时后台异步更新
       fetchFromApi<Record<string, PlayRecord>>(`/api/playrecords`)
         .then((freshData) => {
+          // 如果刚刚执行过清空且返回了非空数据，判定为后端/网络延迟导致的脏数据，忽略本次回填
+          if (
+            cacheManager.isPlayRecordsRecentlyCleared(5000) &&
+            freshData &&
+            Object.keys(freshData).length > 0
+          ) {
+            return;
+          }
+
           // 只有数据真正不同时才更新缓存
           if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
             cacheManager.cachePlayRecords(freshData);
@@ -415,6 +453,14 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
         const freshData = await fetchFromApi<Record<string, PlayRecord>>(
           `/api/playrecords`
         );
+        // 如果刚刚清空，且服务端偶发返回非空，则忽略这次缓存回填
+        if (
+          cacheManager.isPlayRecordsRecentlyCleared(5000) &&
+          freshData &&
+          Object.keys(freshData).length > 0
+        ) {
+          return {};
+        }
         cacheManager.cachePlayRecords(freshData);
         return freshData;
       } catch (err) {
@@ -1082,6 +1128,8 @@ export async function clearAllPlayRecords(): Promise<void> {
   if (STORAGE_TYPE !== 'localstorage') {
     // 立即更新缓存
     cacheManager.cachePlayRecords({});
+    // 标记清空事件，抑制短时间内的脏数据回填
+    cacheManager.markPlayRecordsCleared();
 
     // 触发立即更新事件
     window.dispatchEvent(
@@ -1097,6 +1145,18 @@ export async function clearAllPlayRecords(): Promise<void> {
         headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) throw new Error(`清空播放记录失败: ${res.status}`);
+
+      // 再次确认从后端拉取为空，确保最终一致
+      try {
+        const freshData = await fetchFromApi<Record<string, PlayRecord>>(
+          `/api/playrecords`
+        );
+        if (freshData && Object.keys(freshData).length === 0) {
+          cacheManager.cachePlayRecords({});
+        }
+      } catch (err) {
+        console.warn('二次拉取播放记录校验失败，忽略:', err);
+      }
     } catch (err) {
       await handleDatabaseOperationFailure('playRecords', err);
       throw err;
