@@ -137,15 +137,28 @@ function SearchPageClient() {
         if (bottomNav) {
           const rect = bottomNav.getBoundingClientRect();
           const vv: any = (window as any).visualViewport;
-          const viewportHeight =
+          const layoutBottom = window.innerHeight;
+          const visualBottom =
             typeof vv?.height === 'number' ? vv.height : window.innerHeight;
-          const distanceFromBottom = viewportHeight - rect.bottom;
+          const distance_layout = layoutBottom - rect.bottom;
+          const distance_visual = visualBottom - rect.bottom;
+          const computedOffsetPx = Math.max(
+            0,
+            window.innerHeight -
+              ((typeof vv?.height === 'number'
+                ? vv.height
+                : window.innerHeight) +
+                (typeof vv?.offsetTop === 'number' ? vv.offsetTop : 0))
+          );
 
           // 输出调试信息
           // 精简：移除常规信息日志，仅在异常时告警
 
           // 如果导航栏偏离底部超过50px，输出警告
-          if (Math.abs(distanceFromBottom) > 8) {
+          if (
+            Math.abs(distance_layout) > 8 &&
+            Math.abs(distance_visual + computedOffsetPx) > 8
+          ) {
             const now = Date.now();
             if (now - lastWarnTs > 250) {
               lastWarnTs = now;
@@ -189,9 +202,12 @@ function SearchPageClient() {
               } as any;
 
               console.warn('[搜索页] 底部导航栏位置异常，可能需要重新定位:', {
-                distanceFromBottom,
+                distance_layout,
+                distance_visual,
+                computedOffsetPx,
                 rect,
-                viewportHeight,
+                layoutBottom,
+                visualBottom,
                 devicePixelRatio: dpr,
                 userAgent: ua,
                 visualViewport: vvSnapshot,
