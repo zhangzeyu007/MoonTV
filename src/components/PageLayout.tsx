@@ -46,10 +46,6 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
             style={{
               /* 为移动端底部导航栏留出足够空间，避免内容被遮挡 */
               paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
-              /* 确保内容区域不会与固定定位的底部导航栏重叠 */
-              minHeight: 'calc(100vh - 3.5rem - env(safe-area-inset-bottom))',
-              /* 防止内容与底部导航栏重叠 */
-              marginBottom: 0,
             }}
           >
             {children}
@@ -58,7 +54,20 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
       </div>
 
       {/* 移动端底部导航 */}
-      <div className='md:hidden'>
+      <div
+        className='md:hidden fixed bottom-0 left-0 right-0 z-50'
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 50,
+          transform: 'translate3d(0, 0, 0)',
+          WebkitTransform: 'translate3d(0, 0, 0)',
+          WebkitBackfaceVisibility: 'hidden',
+          backfaceVisibility: 'hidden',
+        }}
+      >
         <MobileBottomNav activePath={activePath} />
       </div>
     </div>
