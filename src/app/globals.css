@@ -209,7 +209,7 @@ div[data-media-provider] video {
     right: 0 !important;
     z-index: 600 !important;
     /* 使用更温和的硬件加速 */
-    transform: translate3d(0, 0, 0) !important;
+    transform: translate3d(0, var(--vv-offset, 0px), 0) !important;
     /* 防止iOS Safari的地址栏变化影响定位 */
     -webkit-transform: translate3d(0, 0, 0) !important;
     /* 确保在iOS上正确显示 */
@@ -267,7 +267,7 @@ div[data-media-provider] video {
     background-color: rgba(255, 255, 255, 0.9) !important;
     backdrop-filter: blur(12px) !important;
     border-top: 1px solid rgba(229, 231, 235, 0.5) !important;
-    transform: translate3d(0, 0, 0) !important;
+    transform: translate3d(0, var(--vv-offset, 0px), 0) !important;
     -webkit-transform: translate3d(0, 0, 0) !important;
     -webkit-backface-visibility: hidden !important;
     backface-visibility: hidden !important;

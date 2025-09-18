@@ -62,9 +62,8 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     <nav
       className='mobile-bottom-nav md:hidden'
       style={{
-        // 依赖 globals.css 的固定定位与 z-index，组件内仅控制合成层与位移
-        transform: `translate3d(0, ${bottomOffsetPx}px, 0)`,
-        WebkitTransform: `translate3d(0, ${bottomOffsetPx}px, 0)`,
+        // 通过 CSS 变量传递位移，避免被全局 !important 覆盖
+        ['--vv-offset' as any]: `${bottomOffsetPx}px`,
         WebkitBackfaceVisibility: 'hidden',
         backfaceVisibility: 'hidden',
         transition: 'transform 0.2s ease-out',

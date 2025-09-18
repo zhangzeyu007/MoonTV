@@ -197,10 +197,30 @@ function SearchPageClient() {
                 backdropFilter: (style as any).backdropFilter,
               } as any;
 
+              // 额外调试：读取 CSS 变量与 transform 实际位移
+              let cssVarOffset = style.getPropertyValue('--vv-offset');
+              cssVarOffset = cssVarOffset ? cssVarOffset.trim() : cssVarOffset;
+              let transformTy: number | null = null;
+              try {
+                if (style.transform && style.transform !== 'none') {
+                  const m = new (window as any).DOMMatrixReadOnly(
+                    style.transform
+                  );
+                  // m.m42 为 translateY 分量（ty）
+                  if (typeof m.m42 === 'number') transformTy = m.m42;
+                }
+              } catch (_) {
+                /* ignore matrix parse errors */
+              }
+
+              const adjusted_visual_distance =
+                distance_visual - computedOffsetPx;
+
               console.warn('[搜索页] 底部导航栏位置异常，可能需要重新定位:', {
                 distance_layout,
                 distance_visual,
                 computedOffsetPx,
+                adjusted_visual_distance,
                 rect,
                 layoutBottom,
                 visualBottom,
@@ -209,6 +229,8 @@ function SearchPageClient() {
                 visualViewport: vvSnapshot,
                 window: winSnapshot,
                 style: styleSnapshot,
+                cssVarOffset,
+                transformTy,
                 ts: new Date().toISOString(),
               });
             }
