@@ -48,6 +48,8 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
               paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
               /* 确保内容区域不会与固定定位的底部导航栏重叠 */
               minHeight: 'calc(100vh - 3.5rem - env(safe-area-inset-bottom))',
+              /* 防止内容与底部导航栏重叠 */
+              marginBottom: 0,
             }}
           >
             {children}

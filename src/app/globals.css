@@ -201,24 +201,90 @@ div[data-media-provider] video {
 
 /* 确保移动端底部导航栏始终固定在屏幕底部 */
 @media (max-width: 768px) {
-  /* 防止底部导航栏在滚动时上移 */
-  nav[class*='fixed'] {
+  /* 专门针对移动端底部导航栏的样式 */
+  .mobile-bottom-nav {
     position: fixed !important;
     bottom: 0 !important;
     left: 0 !important;
     right: 0 !important;
     z-index: 600 !important;
-    transform: translateZ(0) !important;
-    will-change: transform !important;
+    /* 使用更温和的硬件加速 */
+    transform: translate3d(0, 0, 0) !important;
     /* 防止iOS Safari的地址栏变化影响定位 */
-    -webkit-transform: translateZ(0) !important;
+    -webkit-transform: translate3d(0, 0, 0) !important;
     /* 确保在iOS上正确显示 */
     -webkit-backface-visibility: hidden !important;
     backface-visibility: hidden !important;
+    /* 防止在滚动时位置偏移 */
+    top: auto !important;
+    width: 100% !important;
+    /* 确保导航栏高度固定 */
+    min-height: calc(3.5rem + env(safe-area-inset-bottom)) !important;
+    /* 确保导航栏始终可见 */
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    /* 防止被其他元素覆盖 */
+    pointer-events: auto !important;
+    /* 确保背景不透明 */
+    background-color: rgba(255, 255, 255, 0.9) !important;
+  }
+
+  /* 深色模式下的背景 */
+  .dark .mobile-bottom-nav {
+    background-color: rgba(17, 24, 39, 0.8) !important;
   }
 
   /* 确保页面内容不会与底部导航栏重叠 */
   main {
     padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)) !important;
+    /* 防止内容区域与底部导航栏重叠 */
+    margin-bottom: 0 !important;
+  }
+
+  /* 防止其他元素影响底部导航栏 */
+  .mobile-bottom-nav * {
+    pointer-events: auto !important;
+  }
+
+  /* 防止滚动逻辑影响底部导航栏 */
+  .mobile-bottom-nav {
+    /* 确保不会被滚动逻辑影响 */
+    position: fixed !important;
+    /* 防止被transform影响 */
+    transform: translate3d(0, 0, 0) !important;
+    -webkit-transform: translate3d(0, 0, 0) !important;
+    /* 防止被滚动位置影响 */
+    top: auto !important;
+    bottom: 0 !important;
+    /* 确保始终在视口内 */
+    max-height: calc(3.5rem + env(safe-area-inset-bottom)) !important;
+    /* 防止被其他样式覆盖 */
+    all: unset !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 600 !important;
+    display: block !important;
+    width: 100% !important;
+    min-height: calc(3.5rem + env(safe-area-inset-bottom)) !important;
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    backdrop-filter: blur(12px) !important;
+    border-top: 1px solid rgba(229, 231, 235, 0.5) !important;
+    overflow: hidden !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    transform: translate3d(0, 0, 0) !important;
+    -webkit-transform: translate3d(0, 0, 0) !important;
+    -webkit-backface-visibility: hidden !important;
+    backface-visibility: hidden !important;
+  }
+
+  /* 深色模式下的底部导航栏 */
+  .dark .mobile-bottom-nav {
+    background-color: rgba(17, 24, 39, 0.8) !important;
+    border-top-color: rgba(55, 65, 81, 0.5) !important;
   }
 }

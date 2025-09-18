@@ -52,19 +52,8 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   };
 
   return (
-    <nav
-      className='md:hidden fixed left-0 right-0 z-[600] bg-white/90 backdrop-blur-xl border-t border-gray-200/50 overflow-hidden dark:bg-gray-900/80 dark:border-gray-700/50'
-      style={{
-        /* 紧贴视口底部，同时在内部留出安全区高度 */
-        bottom: 0,
-        paddingBottom: 'env(safe-area-inset-bottom)',
-        /* 确保导航栏始终固定在屏幕底部 */
-        position: 'fixed',
-        transform: 'translateZ(0)', // 启用硬件加速，防止滚动时位置偏移
-        willChange: 'transform', // 优化性能
-      }}
-    >
-      <ul className='flex items-center'>
+    <nav className='mobile-bottom-nav md:hidden'>
+      <ul className='flex items-center h-full'>
         {navItems.map((item) => {
           const active = isActive(item.href);
           return (

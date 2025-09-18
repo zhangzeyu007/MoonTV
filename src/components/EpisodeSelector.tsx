@@ -264,8 +264,43 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     [onChange]
   );
 
+  // 本地状态来跟踪当前选中的源，确保UI立即更新
+  const [localCurrentSource, setLocalCurrentSource] = useState<
+    string | undefined
+  >(currentSource);
+  const [localCurrentId, setLocalCurrentId] = useState<string | undefined>(
+    currentId
+  );
+  const [isChangingSource, setIsChangingSource] = useState(false);
+  const changingSourceRef = useRef<string | null>(null);
+
+  // 同步外部状态到本地状态，但避免在源切换过程中被覆盖
+  useEffect(() => {
+    if (!isChangingSource) {
+      setLocalCurrentSource(currentSource);
+      setLocalCurrentId(currentId);
+    } else if (changingSourceRef.current) {
+      // 如果正在切换源，检查外部状态是否已经更新到目标值
+      const targetKey = `${currentSource}-${currentId}`;
+      if (targetKey === changingSourceRef.current) {
+        // 外部状态已经更新到目标值，可以重置切换状态
+        setIsChangingSource(false);
+        changingSourceRef.current = null;
+      }
+    }
+  }, [currentSource, currentId, isChangingSource]);
+
   const handleSourceClick = useCallback(
     (source: SearchResult) => {
+      // 设置源切换状态，防止外部状态覆盖本地状态
+      setIsChangingSource(true);
+      changingSourceRef.current = `${source.source}-${source.id}`;
+
+      // 立即更新本地状态，确保UI立即反映选中状态
+      setLocalCurrentSource(source.source);
+      setLocalCurrentId(source.id);
+
+      // 调用外部回调
       onSourceChange?.(source.source, source.id, source.title);
     },
     [onSourceChange]
@@ -438,19 +473,20 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                 {availableSources
                   .sort((a, b) => {
                     const aIsCurrent =
-                      a.source?.toString() === currentSource?.toString() &&
-                      a.id?.toString() === currentId?.toString();
+                      a.source?.toString() === localCurrentSource?.toString() &&
+                      a.id?.toString() === localCurrentId?.toString();
                     const bIsCurrent =
-                      b.source?.toString() === currentSource?.toString() &&
-                      b.id?.toString() === currentId?.toString();
+                      b.source?.toString() === localCurrentSource?.toString() &&
+                      b.id?.toString() === localCurrentId?.toString();
                     if (aIsCurrent && !bIsCurrent) return -1;
                     if (!aIsCurrent && bIsCurrent) return 1;
                     return 0;
                   })
                   .map((source, index) => {
                     const isCurrentSource =
-                      source.source?.toString() === currentSource?.toString() &&
-                      source.id?.toString() === currentId?.toString();
+                      source.source?.toString() ===
+                        localCurrentSource?.toString() &&
+                      source.id?.toString() === localCurrentId?.toString();
                     return (
                       <div
                         key={`${source.source}-${source.id}`}
