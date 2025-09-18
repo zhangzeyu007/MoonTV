@@ -56,8 +56,8 @@ export function useVisualViewportBottomOffset(
         const innerH = window.innerHeight;
         const vvHeight = typeof vv.height === 'number' ? vv.height : innerH;
         const vvOffsetTop = typeof vv.offsetTop === 'number' ? vv.offsetTop : 0;
-        const raw = innerH - (vvHeight + vvOffsetTop);
-        const next = raw > 0 ? raw : 0;
+        // 正数表示需要向下位移，负数表示需要向上位移
+        const next = vvHeight + vvOffsetTop - innerH;
         const now = nowTs();
         if (now - lastEmitRef.current >= throttleMs) {
           lastEmitRef.current = now;
