@@ -52,8 +52,21 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   };
 
   return (
-    <nav className='mobile-bottom-nav md:hidden'>
-      <ul className='flex items-center h-full'>
+    <nav
+      className='mobile-bottom-nav md:hidden'
+      style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: 50,
+        transform: 'translate3d(0, 0, 0)',
+        WebkitTransform: 'translate3d(0, 0, 0)',
+        WebkitBackfaceVisibility: 'hidden',
+        backfaceVisibility: 'hidden',
+      }}
+    >
+      <ul className='flex items-center h-full bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800'>
         {navItems.map((item) => {
           const active = isActive(item.href);
           return (

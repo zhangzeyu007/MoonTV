@@ -55,18 +55,8 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
 
       {/* 移动端底部导航 */}
       <div
-        className='md:hidden fixed bottom-0 left-0 right-0 z-50'
-        style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          zIndex: 50,
-          transform: 'translate3d(0, 0, 0)',
-          WebkitTransform: 'translate3d(0, 0, 0)',
-          WebkitBackfaceVisibility: 'hidden',
-          backfaceVisibility: 'hidden',
-        }}
+        className='md:hidden'
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <MobileBottomNav activePath={activePath} />
       </div>
