@@ -89,11 +89,45 @@ function SearchPageClient() {
     };
   }, []);
 
-  // 添加调试信息：监控底部导航栏位置
+  // 添加调试信息：监控底部导航栏位置（精简输出，仅在异常或关键事件限频打印）
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
     let rafId: number | null = null;
+    let lastInfoTs = 0;
+
+    const logViewportInfo = (label: string) => {
+      try {
+        // 信息级日志仅在开启调试时打印，异常告警不受此限制
+        if (!debugEnabledRef.current) return;
+        const now = Date.now();
+        if (now - lastInfoTs < 1000) return; // 1s 限频
+        lastInfoTs = now;
+
+        const vv: any = (window as any).visualViewport;
+        const info = {
+          label,
+          innerHeight: window.innerHeight,
+          scrollY: window.scrollY,
+          vv: vv
+            ? {
+                height: vv.height,
+                width: vv.width,
+                pageTop: vv.pageTop,
+                pageLeft: vv.pageLeft,
+                offsetTop: vv.offsetTop,
+                offsetLeft: vv.offsetLeft,
+                scale: vv.scale,
+              }
+            : null,
+          ua: navigator.userAgent,
+          ts: new Date().toISOString(),
+        };
+        console.log('[搜索页] 视口变化', info);
+      } catch (_) {
+        /* noop */
+      }
+    };
 
     const checkBottomNavPosition = () => {
       // 使用 requestAnimationFrame 优化性能
@@ -105,22 +139,10 @@ function SearchPageClient() {
           const distanceFromBottom = viewportHeight - rect.bottom;
 
           // 输出调试信息
-          if (debugEnabledRef.current) {
-            console.log('[搜索页] 底部导航栏位置信息:', {
-              bottom: rect.bottom,
-              viewportHeight,
-              distanceFromBottom,
-              isFixed: window.getComputedStyle(bottomNav).position === 'fixed',
-              scrollTop:
-                window.scrollY ||
-                document.documentElement.scrollTop ||
-                document.body.scrollTop,
-              timestamp: new Date().toISOString(),
-            });
-          }
+          // 精简：移除常规信息日志，仅在异常时告警
 
           // 如果导航栏偏离底部超过50px，输出警告
-          if (Math.abs(distanceFromBottom) > 50) {
+          if (Math.abs(distanceFromBottom) > 8) {
             console.warn('[搜索页] 底部导航栏位置异常，可能需要重新定位:', {
               distanceFromBottom,
               rect,
@@ -136,20 +158,35 @@ function SearchPageClient() {
       passive: true,
     });
 
-    // 定时检查（每5秒）
-    const intervalId = setInterval(checkBottomNavPosition, 5000);
+    // 监听 resize 与 visualViewport.resize（限频信息日志）
+    const onResize = () => logViewportInfo('window.resize');
+    window.addEventListener('resize', onResize);
+
+    const vv: any = (window as any).visualViewport;
+    const onVvResize = () => logViewportInfo('visualViewport.resize');
+    if (vv && typeof vv.addEventListener === 'function') {
+      vv.addEventListener('resize', onVvResize);
+    }
 
     // 页面加载完成后检查
     if (document.readyState === 'complete') {
       checkBottomNavPosition();
+      // 首次信息：若开启调试则打印一次环境信息
+      logViewportInfo('window.load');
     } else {
-      window.addEventListener('load', checkBottomNavPosition);
+      window.addEventListener('load', () => {
+        checkBottomNavPosition();
+        logViewportInfo('window.load');
+      });
     }
 
     return () => {
       window.removeEventListener('scroll', checkBottomNavPosition);
       window.removeEventListener('load', checkBottomNavPosition);
-      clearInterval(intervalId);
+      window.removeEventListener('resize', onResize);
+      if (vv && typeof vv.removeEventListener === 'function') {
+        vv.removeEventListener('resize', onVvResize);
+      }
       if (rafId) {
         cancelAnimationFrame(rafId);
       }
@@ -724,14 +761,7 @@ function SearchPageClient() {
               };
             }
 
-            console.log('[搜索页][滚动中]', {
-              isIOS,
-              current,
-              delta,
-              methods: scrollMethods,
-              bottomNav: bottomNavInfo,
-              ts: new Date().toISOString(),
-            });
+            // 移除高频滚动日志，避免噪声；仅保留异常告警由其他逻辑负责
             lastLogTs = now;
           }
           ticking = false;
