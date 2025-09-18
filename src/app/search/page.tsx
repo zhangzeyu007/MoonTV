@@ -95,6 +95,7 @@ function SearchPageClient() {
 
     let rafId: number | null = null;
     let lastInfoTs = 0;
+    let lastWarnTs = 0;
 
     const logViewportInfo = (label: string) => {
       try {
@@ -135,7 +136,9 @@ function SearchPageClient() {
         const bottomNav = document.querySelector('.mobile-bottom-nav');
         if (bottomNav) {
           const rect = bottomNav.getBoundingClientRect();
-          const viewportHeight = window.innerHeight;
+          const vv: any = (window as any).visualViewport;
+          const viewportHeight =
+            typeof vv?.height === 'number' ? vv.height : window.innerHeight;
           const distanceFromBottom = viewportHeight - rect.bottom;
 
           // 输出调试信息
@@ -143,11 +146,60 @@ function SearchPageClient() {
 
           // 如果导航栏偏离底部超过50px，输出警告
           if (Math.abs(distanceFromBottom) > 8) {
-            console.warn('[搜索页] 底部导航栏位置异常，可能需要重新定位:', {
-              distanceFromBottom,
-              rect,
-              viewportHeight,
-            });
+            const now = Date.now();
+            if (now - lastWarnTs > 250) {
+              lastWarnTs = now;
+              const dpr =
+                typeof window.devicePixelRatio === 'number'
+                  ? window.devicePixelRatio
+                  : undefined;
+              const ua = navigator.userAgent;
+              const vvSnapshot = vv
+                ? {
+                    height: vv.height,
+                    width: vv.width,
+                    pageTop: vv.pageTop,
+                    pageLeft: vv.pageLeft,
+                    offsetTop: vv.offsetTop,
+                    offsetLeft: vv.offsetLeft,
+                    scale: vv.scale,
+                  }
+                : null;
+              const winSnapshot = {
+                innerHeight: window.innerHeight,
+                innerWidth: window.innerWidth,
+                scrollY: window.scrollY,
+                scrollX: window.scrollX,
+                outerHeight: window.outerHeight,
+                outerWidth: window.outerWidth,
+                pageYOffset: window.pageYOffset,
+                pageXOffset: window.pageXOffset,
+              };
+              const style = window.getComputedStyle(bottomNav as Element);
+              const styleSnapshot = {
+                position: style.position,
+                bottom: style.bottom,
+                top: style.top,
+                left: style.left,
+                right: style.right,
+                zIndex: style.zIndex,
+                transform: style.transform,
+                willChange: style.willChange,
+                backdropFilter: (style as any).backdropFilter,
+              } as any;
+
+              console.warn('[搜索页] 底部导航栏位置异常，可能需要重新定位:', {
+                distanceFromBottom,
+                rect,
+                viewportHeight,
+                devicePixelRatio: dpr,
+                userAgent: ua,
+                visualViewport: vvSnapshot,
+                window: winSnapshot,
+                style: styleSnapshot,
+                ts: new Date().toISOString(),
+              });
+            }
           }
         }
       });
