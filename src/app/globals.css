@@ -198,3 +198,27 @@ div[data-media-provider] video {
     display: none !important;
   }
 }
+
+/* 确保移动端底部导航栏始终固定在屏幕底部 */
+@media (max-width: 768px) {
+  /* 防止底部导航栏在滚动时上移 */
+  nav[class*='fixed'] {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 600 !important;
+    transform: translateZ(0) !important;
+    will-change: transform !important;
+    /* 防止iOS Safari的地址栏变化影响定位 */
+    -webkit-transform: translateZ(0) !important;
+    /* 确保在iOS上正确显示 */
+    -webkit-backface-visibility: hidden !important;
+    backface-visibility: hidden !important;
+  }
+
+  /* 确保页面内容不会与底部导航栏重叠 */
+  main {
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)) !important;
+  }
+}

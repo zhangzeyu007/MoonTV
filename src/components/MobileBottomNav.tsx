@@ -58,6 +58,10 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
         /* 紧贴视口底部，同时在内部留出安全区高度 */
         bottom: 0,
         paddingBottom: 'env(safe-area-inset-bottom)',
+        /* 确保导航栏始终固定在屏幕底部 */
+        position: 'fixed',
+        transform: 'translateZ(0)', // 启用硬件加速，防止滚动时位置偏移
+        willChange: 'transform', // 优化性能
       }}
     >
       <ul className='flex items-center'>

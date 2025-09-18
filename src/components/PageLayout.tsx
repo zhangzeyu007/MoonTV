@@ -44,7 +44,10 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
           <main
             className='flex-1 md:min-h-0 mb-14 md:mb-0'
             style={{
+              /* 为移动端底部导航栏留出足够空间，避免内容被遮挡 */
               paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
+              /* 确保内容区域不会与固定定位的底部导航栏重叠 */
+              minHeight: 'calc(100vh - 3.5rem - env(safe-area-inset-bottom))',
             }}
           >
             {children}
