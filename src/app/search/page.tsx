@@ -137,24 +137,15 @@ function SearchPageClient() {
         if (bottomNav) {
           const rect = bottomNav.getBoundingClientRect();
           const vv: any = (window as any).visualViewport;
-          const layoutBottom = window.innerHeight;
-          const visualBottom =
+          const viewportHeight =
             typeof vv?.height === 'number' ? vv.height : window.innerHeight;
-          const distance_layout = layoutBottom - rect.bottom;
-          const distance_visual = visualBottom - rect.bottom;
-          const computedOffsetPx =
-            (typeof vv?.height === 'number' ? vv.height : window.innerHeight) +
-            (typeof vv?.offsetTop === 'number' ? vv.offsetTop : 0) -
-            window.innerHeight;
+          const distanceFromBottom = viewportHeight - rect.bottom;
 
           // 输出调试信息
           // 精简：移除常规信息日志，仅在异常时告警
 
           // 如果导航栏偏离底部超过50px，输出警告
-          if (
-            Math.abs(distance_layout) > 8 &&
-            Math.abs(distance_visual - computedOffsetPx) > 8
-          ) {
+          if (Math.abs(distanceFromBottom) > 8) {
             const now = Date.now();
             if (now - lastWarnTs > 250) {
               lastWarnTs = now;
@@ -217,13 +208,9 @@ function SearchPageClient() {
                 distance_visual - computedOffsetPx;
 
               console.warn('[搜索页] 底部导航栏位置异常，可能需要重新定位:', {
-                distance_layout,
-                distance_visual,
-                computedOffsetPx,
-                adjusted_visual_distance,
+                distanceFromBottom,
                 rect,
-                layoutBottom,
-                visualBottom,
+                viewportHeight,
                 devicePixelRatio: dpr,
                 userAgent: ua,
                 visualViewport: vvSnapshot,
@@ -969,78 +956,103 @@ function SearchPageClient() {
     });
   }, [searchResults, searchQuery]);
 
-  // 优化的搜索函数
-  const fetchSearchResults = useCallback(async (query: string) => {
-    try {
-      setIsLoading(true);
-
-      // 构建搜索URL
-      const urlParams = new URLSearchParams();
-      urlParams.append('q', query.trim());
-
-      // 如果不是聚合模式且有选择的资源，添加资源参数
-      if (
-        viewModeRef.current === 'all' &&
-        selectedResourcesRef.current.length > 0
-      ) {
-        urlParams.append('resources', selectedResourcesRef.current.join(','));
-      }
-
-      const response = await fetch(`/api/search?${urlParams.toString()}`);
-      if (!response.ok) {
-        throw new Error(`搜索请求失败: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setSearchResults(
-        data.results.sort((a: SearchResult, b: SearchResult) => {
-          // 优先排序：标题与搜索词完全一致的排在前面
-          const aExactMatch = a.title === query.trim();
-          const bExactMatch = b.title === query.trim();
-
-          if (aExactMatch && !bExactMatch) return -1;
-          if (!aExactMatch && bExactMatch) return 1;
-
-          // 如果都匹配或都不匹配，则按原来的逻辑排序
-          if (a.year === b.year) {
-            return a.title.localeCompare(b.title);
-          } else {
-            // 处理 unknown 的情况
-            if (a.year === 'unknown' && b.year === 'unknown') {
-              return 0;
-            } else if (a.year === 'unknown') {
-              return 1; // a 排在后面
-            } else if (b.year === 'unknown') {
-              return -1; // b 排在后面
-            } else {
-              // 都是数字年份，按数字大小排序（大的在前面）
-              return parseInt(a.year) > parseInt(b.year) ? -1 : 1;
-            }
+  // 优化的搜索函数（支持静默后台刷新与中止控制）
+  const currentFetchControllerRef = useRef<AbortController | null>(null);
+  const fetchSearchResults = useCallback(
+    async (query: string, options?: { silent?: boolean }) => {
+      const silent = !!options?.silent;
+      try {
+        // 中止上一请求，避免返回时并发竞争
+        if (currentFetchControllerRef.current) {
+          try {
+            currentFetchControllerRef.current.abort();
+          } catch (_) {
+            /* noop */
           }
-        })
-      );
-      setShowResults(true);
-    } catch (error) {
-      // 静默处理搜索错误，避免影响用户体验
-      setSearchResults([]);
-      setShowResults(false);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+        }
+        const controller = new AbortController();
+        currentFetchControllerRef.current = controller;
+
+        if (!silent) setIsLoading(true);
+
+        // 构建搜索URL
+        const urlParams = new URLSearchParams();
+        urlParams.append('q', query.trim());
+
+        // 如果不是聚合模式且有选择的资源，添加资源参数
+        if (
+          viewModeRef.current === 'all' &&
+          selectedResourcesRef.current.length > 0
+        ) {
+          urlParams.append('resources', selectedResourcesRef.current.join(','));
+        }
+
+        const response = await fetch(`/api/search?${urlParams.toString()}`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`搜索请求失败: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setSearchResults(
+          data.results.sort((a: SearchResult, b: SearchResult) => {
+            // 优先排序：标题与搜索词完全一致的排在前面
+            const aExactMatch = a.title === query.trim();
+            const bExactMatch = b.title === query.trim();
+
+            if (aExactMatch && !bExactMatch) return -1;
+            if (!aExactMatch && bExactMatch) return 1;
+
+            // 如果都匹配或都不匹配，则按原来的逻辑排序
+            if (a.year === b.year) {
+              return a.title.localeCompare(b.title);
+            } else {
+              // 处理 unknown 的情况
+              if (a.year === 'unknown' && b.year === 'unknown') {
+                return 0;
+              } else if (a.year === 'unknown') {
+                return 1; // a 排在后面
+              } else if (b.year === 'unknown') {
+                return -1; // b 排在后面
+              } else {
+                // 都是数字年份，按数字大小排序（大的在前面）
+                return parseInt(a.year) > parseInt(b.year) ? -1 : 1;
+              }
+            }
+          })
+        );
+        if (!silent) setShowResults(true);
+      } catch (error) {
+        // 静默处理搜索错误，避免影响用户体验
+        if (!silent) {
+          setSearchResults([]);
+          setShowResults(false);
+        }
+      } finally {
+        if (!silent) setIsLoading(false);
+      }
+    },
+    []
+  );
 
   // 优化的重新搜索函数
-  const refreshSearchResults = useCallback(() => {
-    const currentQuery = searchQueryRef.current.trim();
-    if (currentQuery) {
-      setSearchResults([]);
-      setShowResults(false);
-      // 使用queueMicrotask确保状态更新完成后再执行搜索
-      queueMicrotask(() => {
-        fetchSearchResults(currentQuery);
-      });
-    }
-  }, [fetchSearchResults]);
+  const refreshSearchResults = useCallback(
+    (opts?: { silent?: boolean }) => {
+      const currentQuery = searchQueryRef.current.trim();
+      if (currentQuery) {
+        if (!opts?.silent) {
+          setSearchResults([]);
+          setShowResults(false);
+        }
+        // 使用queueMicrotask确保状态更新完成后再执行搜索
+        queueMicrotask(() => {
+          fetchSearchResults(currentQuery, { silent: !!opts?.silent });
+        });
+      }
+    },
+    [fetchSearchResults]
+  );
 
   // 实时搜索函数（带防抖）
   const handleRealtimeSearch = useCallback(
@@ -1133,8 +1145,8 @@ function SearchPageClient() {
       );
     }
 
-    // 清除当前搜索结果，重新搜索以应用新的模式
-    refreshSearchResults();
+    // 重新搜索以应用新的模式（保持静默，避免UI闪烁）
+    refreshSearchResults({ silent: true });
   }, [viewMode, refreshSearchResults]);
 
   // 优化的搜索历史点击处理
@@ -1278,9 +1290,9 @@ function SearchPageClient() {
 
         // 从详情页返回时，需要刷新数据但保持滚动位置
         if (savedState.query) {
-          // 延迟刷新数据，确保状态先恢复
+          // 延迟刷新数据，确保状态先恢复（静默后台刷新，避免UI闪烁）
           setTimeout(() => {
-            fetchSearchResults(savedState.query).then(() => {
+            fetchSearchResults(savedState.query, { silent: true }).then(() => {
               // 数据刷新完成后，如果还有待恢复的滚动位置，重新触发滚动恢复
               if (pendingScrollPosition !== null) {
                 // 使用setTimeout确保DOM更新完成

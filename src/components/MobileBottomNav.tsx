@@ -4,8 +4,6 @@ import { Clover, Film, Home, Search, Tv } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import useVisualViewportBottomOffset from './hooks/useVisualViewportBottomOffset';
-
 interface MobileBottomNavProps {
   /**
    * 主动指定当前激活的路径。当未提供时，自动使用 usePathname() 获取的路径。
@@ -53,17 +51,19 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     );
   };
 
-  const bottomOffsetPx = useVisualViewportBottomOffset({
-    enableOnIOSOnly: true,
-    throttleMs: 80,
-  });
+  const bottomOffsetPx = 0;
 
   return (
     <nav
       className='mobile-bottom-nav md:hidden'
       style={{
-        // 通过 CSS 变量传递位移，避免被全局 !important 覆盖
-        ['--vv-offset' as any]: `${bottomOffsetPx}px`,
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: 50,
+        transform: 'translate3d(0, 0, 0)',
+        WebkitTransform: 'translate3d(0, 0, 0)',
         WebkitBackfaceVisibility: 'hidden',
         backfaceVisibility: 'hidden',
         transition: 'transform 0.2s ease-out',
