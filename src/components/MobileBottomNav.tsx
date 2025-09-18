@@ -64,6 +64,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
         WebkitTransform: 'translate3d(0, 0, 0)',
         WebkitBackfaceVisibility: 'hidden',
         backfaceVisibility: 'hidden',
+        transition: 'transform 0.2s ease-out',
       }}
     >
       <ul className='flex items-center h-full bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800'>

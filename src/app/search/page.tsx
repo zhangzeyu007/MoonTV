@@ -93,37 +93,42 @@ function SearchPageClient() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
+    let rafId: number | null = null;
+
     const checkBottomNavPosition = () => {
-      const bottomNav = document.querySelector('.mobile-bottom-nav');
-      if (bottomNav) {
-        const rect = bottomNav.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
-        const distanceFromBottom = viewportHeight - rect.bottom;
+      // 使用 requestAnimationFrame 优化性能
+      rafId = requestAnimationFrame(() => {
+        const bottomNav = document.querySelector('.mobile-bottom-nav');
+        if (bottomNav) {
+          const rect = bottomNav.getBoundingClientRect();
+          const viewportHeight = window.innerHeight;
+          const distanceFromBottom = viewportHeight - rect.bottom;
 
-        // 输出调试信息
-        if (debugEnabledRef.current) {
-          console.log('[搜索页] 底部导航栏位置信息:', {
-            bottom: rect.bottom,
-            viewportHeight,
-            distanceFromBottom,
-            isFixed: window.getComputedStyle(bottomNav).position === 'fixed',
-            scrollTop:
-              window.scrollY ||
-              document.documentElement.scrollTop ||
-              document.body.scrollTop,
-            timestamp: new Date().toISOString(),
-          });
-        }
+          // 输出调试信息
+          if (debugEnabledRef.current) {
+            console.log('[搜索页] 底部导航栏位置信息:', {
+              bottom: rect.bottom,
+              viewportHeight,
+              distanceFromBottom,
+              isFixed: window.getComputedStyle(bottomNav).position === 'fixed',
+              scrollTop:
+                window.scrollY ||
+                document.documentElement.scrollTop ||
+                document.body.scrollTop,
+              timestamp: new Date().toISOString(),
+            });
+          }
 
-        // 如果导航栏偏离底部超过50px，输出警告
-        if (Math.abs(distanceFromBottom) > 50) {
-          console.warn('[搜索页] 底部导航栏位置异常，可能需要重新定位:', {
-            distanceFromBottom,
-            rect,
-            viewportHeight,
-          });
+          // 如果导航栏偏离底部超过50px，输出警告
+          if (Math.abs(distanceFromBottom) > 50) {
+            console.warn('[搜索页] 底部导航栏位置异常，可能需要重新定位:', {
+              distanceFromBottom,
+              rect,
+              viewportHeight,
+            });
+          }
         }
-      }
+      });
     };
 
     // 监听滚动事件
@@ -145,6 +150,9 @@ function SearchPageClient() {
       window.removeEventListener('scroll', checkBottomNavPosition);
       window.removeEventListener('load', checkBottomNavPosition);
       clearInterval(intervalId);
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+      }
     };
   }, []);
 
