@@ -204,9 +204,6 @@ function SearchPageClient() {
                 /* ignore matrix parse errors */
               }
 
-              const adjusted_visual_distance =
-                distance_visual - computedOffsetPx;
-
               console.warn('[搜索页] 底部导航栏位置异常，可能需要重新定位:', {
                 distanceFromBottom,
                 rect,
