@@ -6,7 +6,7 @@ import Artplayer from 'artplayer';
 import Hls from 'hls.js';
 import { Heart } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   deleteFavorite,
@@ -88,6 +88,10 @@ function PlayPageClient() {
   // 集数相关
   const [currentEpisodeIndex, setCurrentEpisodeIndex] = useState(0);
 
+  // 用户操作状态管理
+  const [isUserSeeking, setIsUserSeeking] = useState(false);
+  const isUserSeekingRef = useRef(false);
+
   const currentSourceRef = useRef(currentSource);
   const currentIdRef = useRef(currentId);
   const videoTitleRef = useRef(videoTitle);
@@ -103,6 +107,7 @@ function PlayPageClient() {
     currentEpisodeIndexRef.current = currentEpisodeIndex;
     videoTitleRef.current = videoTitle;
     videoYearRef.current = videoYear;
+    isUserSeekingRef.current = isUserSeeking;
   }, [
     currentSource,
     currentId,
@@ -110,6 +115,7 @@ function PlayPageClient() {
     currentEpisodeIndex,
     videoTitle,
     videoYear,
+    isUserSeeking,
   ]);
 
   // 视频播放地址
@@ -179,6 +185,9 @@ function PlayPageClient() {
   // 播放进度保存相关
   const saveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSaveTimeRef = useRef<number>(0);
+
+  // 防抖相关
+  const saveProgressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const artPlayerRef = useRef<any>(null);
   const artRef = useRef<HTMLDivElement | null>(null);
@@ -923,8 +932,8 @@ function PlayPageClient() {
   // ---------------------------------------------------------------------------
   // 播放记录相关
   // ---------------------------------------------------------------------------
-  // 保存播放进度
-  const saveCurrentPlayProgress = async () => {
+  // 保存播放进度（内部函数，不检查用户操作状态）
+  const saveCurrentPlayProgressInternal = async () => {
     if (
       !artPlayerRef.current ||
       !currentSourceRef.current ||
@@ -969,6 +978,33 @@ function PlayPageClient() {
       console.error('保存播放进度失败:', err);
     }
   };
+
+  // 防抖的进度保存函数
+  const debouncedSaveProgress = useCallback(() => {
+    // 如果用户正在拖动进度条，不保存
+    if (isUserSeekingRef.current) {
+      return;
+    }
+
+    // 清除之前的定时器
+    if (saveProgressTimeoutRef.current) {
+      clearTimeout(saveProgressTimeoutRef.current);
+    }
+
+    // 设置新的防抖定时器
+    saveProgressTimeoutRef.current = setTimeout(() => {
+      saveCurrentPlayProgressInternal();
+    }, 1000); // 1秒防抖延迟
+  }, []);
+
+  // 立即保存播放进度（用于用户操作结束后的保存）
+  const saveCurrentPlayProgress = useCallback(() => {
+    // 如果用户正在拖动进度条，不保存
+    if (isUserSeekingRef.current) {
+      return;
+    }
+    saveCurrentPlayProgressInternal();
+  }, []);
 
   useEffect(() => {
     // 页面即将卸载时保存播放进度
@@ -1403,7 +1439,37 @@ function PlayPageClient() {
         }
       });
 
+      // 监听用户开始拖动进度条
+      artPlayerRef.current.on('seeking', () => {
+        console.log('用户开始拖动进度条');
+        setIsUserSeeking(true);
+        isUserSeekingRef.current = true;
+
+        // 清除防抖定时器，避免在拖动过程中保存
+        if (saveProgressTimeoutRef.current) {
+          clearTimeout(saveProgressTimeoutRef.current);
+          saveProgressTimeoutRef.current = null;
+        }
+      });
+
+      // 监听用户结束拖动进度条
+      artPlayerRef.current.on('seeked', () => {
+        console.log('用户结束拖动进度条');
+        setIsUserSeeking(false);
+        isUserSeekingRef.current = false;
+
+        // 用户操作结束后立即保存进度
+        setTimeout(() => {
+          saveCurrentPlayProgressInternal();
+        }, 100);
+      });
+
       artPlayerRef.current.on('video:timeupdate', () => {
+        // 如果用户正在拖动进度条，不执行自动保存
+        if (isUserSeekingRef.current) {
+          return;
+        }
+
         const now = Date.now();
         let interval = 5000;
         if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'd1') {
@@ -1413,7 +1479,7 @@ function PlayPageClient() {
           interval = 20000;
         }
         if (now - lastSaveTimeRef.current > interval) {
-          saveCurrentPlayProgress();
+          debouncedSaveProgress();
           lastSaveTimeRef.current = now;
         }
       });
@@ -1439,6 +1505,9 @@ function PlayPageClient() {
     return () => {
       if (saveIntervalRef.current) {
         clearInterval(saveIntervalRef.current);
+      }
+      if (saveProgressTimeoutRef.current) {
+        clearTimeout(saveProgressTimeoutRef.current);
       }
     };
   }, []);
