@@ -1674,7 +1674,7 @@ function PlayPageClient() {
 
   return (
     <PageLayout activePath='/play'>
-      <div className='flex flex-col gap-3 py-4 px-5 lg:px-[3rem] 2xl:px-20'>
+      <div className='flex flex-col gap-3 py-4 px-5 lg:px-[3rem] 2xl:px-20 search-content-container'>
         {/* 第一行：影片标题 */}
         <div className='py-1'>
           <h1 className='text-xl font-semibold text-gray-900 dark:text-gray-100'>
@@ -1835,7 +1835,7 @@ function PlayPageClient() {
         </div>
 
         {/* 详情展示 */}
-        <div className='grid grid-cols-1 md:grid-cols-4 gap-4'>
+        <div className='grid grid-cols-1 md:grid-cols-4 gap-4 search-results-container'>
           {/* 文字区 */}
           <div className='md:col-span-3'>
             <div className='p-6 flex flex-col min-h-0'>
