@@ -79,13 +79,20 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
           }
         }
 
+        // 减去顶部导航条的高度 (h-12 = 48px = 3rem)
+        const headerHeight = 48; // 移动端顶部导航条高度
+        const availableViewportHeight = viewportHeight - headerHeight;
+
         // 如果导航栏不在底部，强制调整
+        // 使用可用视窗高度来检测位置
         if (Math.abs(rect.bottom - viewportHeight) > 5) {
           navElement.style.bottom = '0px';
           navElement.style.position = 'fixed';
           console.log('[底部导航栏] 已修复位置', {
             rectBottom: rect.bottom,
             viewportHeight,
+            availableViewportHeight,
+            headerHeight,
             diff: Math.abs(rect.bottom - viewportHeight),
           });
         }

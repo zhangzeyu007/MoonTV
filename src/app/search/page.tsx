@@ -1302,9 +1302,13 @@ function SearchPageClient() {
           }
         }
 
+        // 减去顶部导航条的高度 (h-12 = 48px = 3rem)
+        const headerHeight = 48; // 移动端顶部导航条高度
+        const availableViewportHeight = viewportHeight - headerHeight;
+
         return Math.max(
-          document.body.scrollHeight - viewportHeight,
-          document.documentElement.scrollHeight - viewportHeight,
+          document.body.scrollHeight - availableViewportHeight,
+          document.documentElement.scrollHeight - availableViewportHeight,
           0
         );
       };
@@ -1321,6 +1325,8 @@ function SearchPageClient() {
         documentHeight: document.documentElement.scrollHeight,
         bodyHeight: document.body.scrollHeight,
         windowHeight: window.innerHeight,
+        headerHeight: 48,
+        availableViewportHeight: window.innerHeight - 48,
       });
 
       if (targetPosition === 0) {
@@ -1687,8 +1693,10 @@ function SearchPageClient() {
         const checkInterval = 100;
         let waitTime = 0;
         const waitForContent = () => {
+          // 考虑顶部导航条高度
+          const availableViewportHeight = window.innerHeight - 48;
           const hasScrollableContent =
-            document.body.scrollHeight > window.innerHeight;
+            document.body.scrollHeight > availableViewportHeight;
           const hasSearchResults = showResults && searchResults.length > 0;
           const shouldProceed =
             hasScrollableContent || hasSearchResults || waitTime >= maxWaitTime;
@@ -1727,12 +1735,15 @@ function SearchPageClient() {
       const maxAttempts = isIOS ? 120 : 40; // iOS需要更多重试
       let attempts = 0;
       const tolerance = 8;
-      const getMaxScrollTop = () =>
-        Math.max(
-          document.body.scrollHeight - window.innerHeight,
-          document.documentElement.scrollHeight - window.innerHeight,
+      const getMaxScrollTop = () => {
+        // 考虑顶部导航条高度
+        const availableViewportHeight = window.innerHeight - 48;
+        return Math.max(
+          document.body.scrollHeight - availableViewportHeight,
+          document.documentElement.scrollHeight - availableViewportHeight,
           0
         );
+      };
       const trySet = () => {
         const clamped = Math.max(0, Math.min(target, getMaxScrollTop()));
         setScrollTop(clamped);
