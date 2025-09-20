@@ -3,6 +3,7 @@
 import { Clover, Film, Home, Search, Tv } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useRef } from 'react';
 
 interface MobileBottomNavProps {
   /**
@@ -51,8 +52,67 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     );
   };
 
+  // 添加动态位置调整逻辑，确保底部导航栏始终固定在底部
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const adjustBottomNav = () => {
+      const navElement = navRef.current;
+      if (navElement) {
+        // 确保导航栏始终在视口底部
+        const rect = navElement.getBoundingClientRect();
+        const viewportHeight = window.innerHeight;
+
+        // 如果导航栏不在底部，强制调整
+        if (Math.abs(rect.bottom - viewportHeight) > 5) {
+          navElement.style.bottom = '0px';
+          navElement.style.position = 'fixed';
+          console.log('[底部导航栏] 已修复位置');
+        }
+      }
+    };
+
+    // 在滚动恢复后检查导航栏位置
+    const checkAfterScroll = () => {
+      setTimeout(adjustBottomNav, 200);
+    };
+
+    // 监听滚动恢复完成事件
+    const handleScrollRestore = () => {
+      setTimeout(adjustBottomNav, 300);
+    };
+
+    // 监听页面可见性变化，确保从后台返回时导航栏位置正确
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        setTimeout(adjustBottomNav, 100);
+      }
+    };
+
+    window.addEventListener('scroll', checkAfterScroll);
+    window.addEventListener('resize', adjustBottomNav);
+    window.addEventListener('load', adjustBottomNav);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // 监听自定义的滚动恢复完成事件
+    window.addEventListener('scrollRestoreComplete', handleScrollRestore);
+
+    // 初始检查
+    setTimeout(adjustBottomNav, 100);
+
+    return () => {
+      window.removeEventListener('scroll', checkAfterScroll);
+      window.removeEventListener('resize', adjustBottomNav);
+      window.removeEventListener('load', adjustBottomNav);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('scrollRestoreComplete', handleScrollRestore);
+    };
+  }, []);
+
   return (
     <nav
+      ref={navRef}
+      data-mobile-bottom-nav
       className='md:hidden fixed left-0 right-0 z-[600] bg-white/90 backdrop-blur-xl border-t border-gray-200/50 overflow-hidden dark:bg-gray-900/80 dark:border-gray-700/50'
       style={{
         /* 紧贴视口底部，同时在内部留出安全区高度 */

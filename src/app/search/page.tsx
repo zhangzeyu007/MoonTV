@@ -203,7 +203,7 @@ function SearchPageClient() {
         }
         if (el) el.scrollTop = y;
         // 兜底一次，避免某些 WebKit 场景忽略 scrollTop 赋值
-        window.scrollTo(0, y);
+        window.scrollTo({ top: y, behavior: 'auto' });
         // 还原 scroll-behavior 设置
         try {
           if (htmlEl) {
@@ -1478,7 +1478,7 @@ function SearchPageClient() {
                       document.documentElement.scrollTop = targetPosition;
 
                     // 方法2: 使用window.scrollTo
-                    window.scrollTo(0, targetPosition);
+                    window.scrollTo({ top: targetPosition, behavior: 'auto' });
 
                     // 方法3: 使用scrollIntoView（如果找到目标元素）
                     const saved = localStorage.getItem('searchPageState');
@@ -1498,7 +1498,10 @@ function SearchPageClient() {
                           });
                           // 再微调位置
                           setTimeout(() => {
-                            window.scrollTo(0, targetPosition);
+                            window.scrollTo({
+                              top: targetPosition,
+                              behavior: 'auto',
+                            });
                           }, 50);
                         }
                       }
@@ -1506,7 +1509,10 @@ function SearchPageClient() {
 
                     // 方法4: 使用requestAnimationFrame确保在下一帧执行
                     requestAnimationFrame(() => {
-                      window.scrollTo(0, targetPosition);
+                      window.scrollTo({
+                        top: targetPosition,
+                        behavior: 'auto',
+                      });
                       if (document.body)
                         document.body.scrollTop = targetPosition;
                       if (document.documentElement)
@@ -1518,9 +1524,13 @@ function SearchPageClient() {
                 }
 
                 setPendingScrollPosition(null);
+                // 触发滚动恢复完成事件
+                window.dispatchEvent(new CustomEvent('scrollRestoreComplete'));
               }, 150); // 增加延迟时间
             } else {
               setPendingScrollPosition(null);
+              // 触发滚动恢复完成事件
+              window.dispatchEvent(new CustomEvent('scrollRestoreComplete'));
             }
           }, 150); // 增加初始验证延迟
         };
@@ -1552,12 +1562,17 @@ function SearchPageClient() {
             setTimeout(() => {
               if (pendingScrollPosition !== null) {
                 // console.log('[滚动位置恢复] iOS执行容错恢复');
-                window.scrollTo(0, pendingScrollPosition);
+                window.scrollTo({
+                  top: pendingScrollPosition,
+                  behavior: 'auto',
+                });
                 if (document.body)
                   document.body.scrollTop = pendingScrollPosition;
                 if (document.documentElement)
                   document.documentElement.scrollTop = pendingScrollPosition;
                 setPendingScrollPosition(null);
+                // 触发滚动恢复完成事件
+                window.dispatchEvent(new CustomEvent('scrollRestoreComplete'));
               }
             }, 1000); // 1秒后尝试容错恢复
           }
@@ -1593,7 +1608,7 @@ function SearchPageClient() {
             if (scrollingElement) {
               scrollingElement.scrollTop = targetPosition;
             }
-            window.scrollTo(0, targetPosition);
+            window.scrollTo({ top: targetPosition, behavior: 'auto' });
             if (document.documentElement)
               document.documentElement.scrollTop = targetPosition;
             if (document.body)
@@ -1615,14 +1630,21 @@ function SearchPageClient() {
               // 更新缓存
               currentScrollPositionRef.current = targetPosition;
               setPendingScrollPosition(null);
+              // 触发滚动恢复完成事件
+              window.dispatchEvent(new CustomEvent('scrollRestoreComplete'));
               return;
             }
             attempts += 1;
             if (attempts >= maxAttempts) {
               // console.log('[滚动位置恢复] PC达到最大重试次数，使用兜底方案');
               setTimeout(() => {
-                window.scrollTo(0, Math.min(targetPosition, getMaxScrollTop()));
+                window.scrollTo({
+                  top: Math.min(targetPosition, getMaxScrollTop()),
+                  behavior: 'auto',
+                });
                 setPendingScrollPosition(null);
+                // 触发滚动恢复完成事件
+                window.dispatchEvent(new CustomEvent('scrollRestoreComplete'));
               }, 120);
               return;
             }
