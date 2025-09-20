@@ -65,7 +65,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     // 防抖机制：避免频繁检查
     const now = Date.now();
     const timeSinceLastCheck = now - lastCheckTimeRef.current;
-    const minInterval = 1000; // 最小间隔1秒
+    const minInterval = 500; // 减少最小间隔到500ms，让检查更频繁
 
     if (timeSinceLastCheck < minInterval) {
       console.log('[底部导航栏] 防抖跳过检查', {
@@ -99,7 +99,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
 
     // 检查导航栏是否在正确位置
     // 导航栏应该在视口底部，即 rect.bottom 应该等于 viewportHeight
-    const isAtBottom = Math.abs(rect.bottom - viewportHeight) <= 10; // 增加容错范围
+    const isAtBottom = Math.abs(rect.bottom - viewportHeight) <= 20; // 增加容错范围到20px
     const currentBottom = navElement.style.bottom;
     const computedStyle = window.getComputedStyle(navElement);
     const computedBottom = computedStyle.bottom;
@@ -110,6 +110,10 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       computedBottom === '0' ||
       computedBottom === 'auto';
 
+    // 强制检查：如果导航栏明显不在底部，就修复
+    const isFarFromBottom = rect.bottom < viewportHeight - 50; // 距离底部超过50px就修复
+    const needsFix = !isAtBottom || !isBottomZero || isFarFromBottom;
+
     console.log('[底部导航栏] 位置检测', {
       rectBottom: rect.bottom,
       rectTop: rect.top,
@@ -119,6 +123,8 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       computedBottom,
       isBottomZero,
       isComputedBottomZero,
+      isFarFromBottom,
+      needsFix,
       diff: Math.abs(rect.bottom - viewportHeight),
       position: computedStyle.position,
       transform: computedStyle.transform,
@@ -172,6 +178,20 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
             isContentShort,
           });
         }
+
+        // 搜索页面额外强制设置，确保导航栏在底部
+        setTimeout(() => {
+          const newRect = navElement.getBoundingClientRect();
+          if (newRect.bottom < viewportHeight - 10) {
+            console.log('[底部导航栏] 搜索页二次修复', {
+              newRectBottom: newRect.bottom,
+              viewportHeight,
+              diff: viewportHeight - newRect.bottom,
+            });
+            navElement.style.setProperty('bottom', '0px', 'important');
+            navElement.style.setProperty('position', 'fixed', 'important');
+          }
+        }, 100);
       } else {
         // 其他页面使用标准修复
         navElement.style.setProperty('bottom', '0px', 'important');
@@ -186,13 +206,18 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     };
 
     // 如果导航栏不在底部位置，主动修复
-    if (!isAtBottom || !isBottomZero) {
+    if (needsFix) {
       console.log('[底部导航栏] 需要修复位置', {
-        reason: !isAtBottom ? '位置不正确' : 'bottom值不为0',
+        reason: !isAtBottom
+          ? '位置不正确'
+          : isFarFromBottom
+          ? '距离底部太远'
+          : 'bottom值不为0',
         rectBottom: rect.bottom,
         viewportHeight,
         currentBottom,
         computedBottom,
+        isFarFromBottom,
       });
 
       forceFixPosition();
@@ -203,6 +228,19 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
         currentBottom,
         computedBottom,
       });
+    }
+
+    // 在搜索页面时，额外进行强制修复检查
+    if (currentActive === '/search') {
+      // 如果导航栏距离底部超过30px，强制修复
+      if (rect.bottom < viewportHeight - 30) {
+        console.log('[底部导航栏] 搜索页强制修复', {
+          rectBottom: rect.bottom,
+          viewportHeight,
+          diff: viewportHeight - rect.bottom,
+        });
+        forceFixPosition();
+      }
     }
 
     // 移除延迟检查，避免干扰滚动功能
