@@ -1119,13 +1119,10 @@ function SearchPageClient() {
           }, 50);
         }
 
-        // 额外触发底部导航栏位置检查，确保从播放页返回时导航栏位置正确
+        // 触发底部导航栏位置检查，确保从播放页返回时导航栏位置正确
         setTimeout(() => {
           window.dispatchEvent(new CustomEvent('bottomNavPositionCheck'));
-        }, 200);
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('bottomNavPositionCheck'));
-        }, 800);
+        }, 500);
       } else if (urlQuery) {
         // 有URL参数，使用URL参数（用户主动搜索或直接访问）
         setSearchQuery(urlQuery);
