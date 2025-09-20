@@ -3,7 +3,7 @@
 import { Clover, Film, Home, Search, Tv } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 interface MobileBottomNavProps {
   /**
@@ -54,49 +54,87 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
 
   // 添加动态位置调整逻辑，确保底部导航栏始终固定在底部
   const navRef = useRef<HTMLElement>(null);
+  const positionCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 主动监测底部导航栏位置的函数
+  const checkAndFixBottomNavPosition = useCallback(() => {
+    const navElement = navRef.current;
+    if (!navElement) return;
+
+    // 使用更稳定的视口高度计算方法
+    const rect = navElement.getBoundingClientRect();
+
+    // 获取稳定的视口高度，优先使用 document.documentElement.clientHeight
+    let viewportHeight = window.innerHeight;
+
+    // 在iOS Safari中，使用更稳定的高度计算方法
+    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      // 使用 document.documentElement.clientHeight 作为主要参考
+      const docHeight = document.documentElement.clientHeight;
+      const windowHeight = window.innerHeight;
+
+      // 如果两者差异很大，说明视口高度不稳定，使用更保守的值
+      if (Math.abs(docHeight - windowHeight) > 50) {
+        viewportHeight = Math.min(docHeight, windowHeight);
+      } else {
+        viewportHeight = docHeight;
+      }
+    }
+
+    // 检查导航栏是否在正确位置（bottom 为 0 或接近 0）
+    const isAtBottom = Math.abs(rect.bottom - viewportHeight) <= 5;
+    const currentBottom = navElement.style.bottom;
+    const isBottomZero =
+      currentBottom === '0px' || currentBottom === '0' || currentBottom === '';
+
+    // 如果导航栏不在底部位置，主动修复
+    if (!isAtBottom || !isBottomZero) {
+      // 检查是否在搜索页面
+      const isSearchPage = currentActive === '/search';
+
+      if (isSearchPage) {
+        // 搜索页面：检查是否需要特殊处理
+        // 如果页面内容高度不足，可能需要调整位置
+        const bodyHeight = document.body.scrollHeight;
+        const contentHeight = bodyHeight - 48; // 减去顶部导航条高度
+
+        if (contentHeight < viewportHeight - 56) {
+          // 内容高度不足，使用标准底部位置
+          navElement.style.bottom = '0px';
+          navElement.style.position = 'fixed';
+          console.log('[底部导航栏] 搜索页内容不足，使用标准底部位置', {
+            rectBottom: rect.bottom,
+            viewportHeight,
+            contentHeight,
+            bodyHeight,
+          });
+        } else {
+          // 内容充足，使用标准底部位置
+          navElement.style.bottom = '0px';
+          navElement.style.position = 'fixed';
+          console.log('[底部导航栏] 搜索页内容充足，使用标准底部位置', {
+            rectBottom: rect.bottom,
+            viewportHeight,
+            contentHeight,
+            bodyHeight,
+          });
+        }
+      } else {
+        // 其他页面使用标准修复
+        navElement.style.bottom = '0px';
+        navElement.style.position = 'fixed';
+        console.log('[底部导航栏] 非搜索页，使用标准底部位置', {
+          rectBottom: rect.bottom,
+          viewportHeight,
+          currentBottom,
+        });
+      }
+    }
+  }, [currentActive]);
 
   useEffect(() => {
     const adjustBottomNav = () => {
-      const navElement = navRef.current;
-      if (navElement) {
-        // 使用更稳定的视口高度计算方法
-        const rect = navElement.getBoundingClientRect();
-
-        // 获取稳定的视口高度，优先使用 document.documentElement.clientHeight
-        let viewportHeight = window.innerHeight;
-
-        // 在iOS Safari中，使用更稳定的高度计算方法
-        if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-          // 使用 document.documentElement.clientHeight 作为主要参考
-          const docHeight = document.documentElement.clientHeight;
-          const windowHeight = window.innerHeight;
-
-          // 如果两者差异很大，说明视口高度不稳定，使用更保守的值
-          if (Math.abs(docHeight - windowHeight) > 50) {
-            viewportHeight = Math.min(docHeight, windowHeight);
-          } else {
-            viewportHeight = docHeight;
-          }
-        }
-
-        // 减去顶部导航条的高度 (h-12 = 48px = 3rem)
-        const headerHeight = 48; // 移动端顶部导航条高度
-        const availableViewportHeight = viewportHeight - headerHeight;
-
-        // 如果导航栏不在底部，强制调整
-        // 使用可用视窗高度来检测位置
-        if (Math.abs(rect.bottom - viewportHeight) > 5) {
-          navElement.style.bottom = '0px';
-          navElement.style.position = 'fixed';
-          console.log('[底部导航栏] 已修复位置', {
-            rectBottom: rect.bottom,
-            viewportHeight,
-            availableViewportHeight,
-            headerHeight,
-            diff: Math.abs(rect.bottom - viewportHeight),
-          });
-        }
-      }
+      checkAndFixBottomNavPosition();
     };
 
     // 在滚动恢复后检查导航栏位置
@@ -119,6 +157,32 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       }
     };
 
+    // 启动主动监测机制
+    const startPositionMonitoring = () => {
+      // 清除之前的定时器
+      if (positionCheckIntervalRef.current) {
+        clearInterval(positionCheckIntervalRef.current);
+      }
+
+      // 每500ms检查一次导航栏位置
+      positionCheckIntervalRef.current = setInterval(() => {
+        checkAndFixBottomNavPosition();
+      }, 500);
+    };
+
+    // 停止主动监测机制
+    const stopPositionMonitoring = () => {
+      if (positionCheckIntervalRef.current) {
+        clearInterval(positionCheckIntervalRef.current);
+        positionCheckIntervalRef.current = null;
+      }
+    };
+
+    // 在搜索页面时启动主动监测
+    if (currentActive === '/search') {
+      startPositionMonitoring();
+    }
+
     window.addEventListener('scroll', checkAfterScroll);
     window.addEventListener('resize', adjustBottomNav);
     window.addEventListener('load', adjustBottomNav);
@@ -127,17 +191,46 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     // 监听自定义的滚动恢复完成事件
     window.addEventListener('scrollRestoreComplete', handleScrollRestore);
 
+    // 监听底部导航栏位置检查事件
+    const handleBottomNavPositionCheck = () => {
+      setTimeout(adjustBottomNav, 100);
+    };
+    window.addEventListener(
+      'bottomNavPositionCheck',
+      handleBottomNavPositionCheck
+    );
+
+    // 监听页面路径变化，在搜索页面时启动监测
+    const handlePathChange = () => {
+      if (currentActive === '/search') {
+        startPositionMonitoring();
+        // 立即检查一次
+        setTimeout(adjustBottomNav, 100);
+      } else {
+        stopPositionMonitoring();
+      }
+    };
+
+    // 监听popstate事件，检测页面返回
+    window.addEventListener('popstate', handlePathChange);
+
     // 初始检查
     setTimeout(adjustBottomNav, 100);
 
     return () => {
+      stopPositionMonitoring();
       window.removeEventListener('scroll', checkAfterScroll);
       window.removeEventListener('resize', adjustBottomNav);
       window.removeEventListener('load', adjustBottomNav);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('scrollRestoreComplete', handleScrollRestore);
+      window.removeEventListener(
+        'bottomNavPositionCheck',
+        handleBottomNavPositionCheck
+      );
+      window.removeEventListener('popstate', handlePathChange);
     };
-  }, []);
+  }, [currentActive, checkAndFixBottomNavPosition]);
 
   return (
     <nav

@@ -1549,11 +1549,15 @@ function SearchPageClient() {
                 setPendingScrollPosition(null);
                 // 触发滚动恢复完成事件
                 window.dispatchEvent(new CustomEvent('scrollRestoreComplete'));
+                // 额外触发底部导航栏位置检查事件
+                window.dispatchEvent(new CustomEvent('bottomNavPositionCheck'));
               }, 150); // 增加延迟时间
             } else {
               setPendingScrollPosition(null);
               // 触发滚动恢复完成事件
               window.dispatchEvent(new CustomEvent('scrollRestoreComplete'));
+              // 额外触发底部导航栏位置检查事件
+              window.dispatchEvent(new CustomEvent('bottomNavPositionCheck'));
             }
           }, 150); // 增加初始验证延迟
         };
@@ -1596,6 +1600,8 @@ function SearchPageClient() {
                 setPendingScrollPosition(null);
                 // 触发滚动恢复完成事件
                 window.dispatchEvent(new CustomEvent('scrollRestoreComplete'));
+                // 额外触发底部导航栏位置检查事件
+                window.dispatchEvent(new CustomEvent('bottomNavPositionCheck'));
               }
             }, 1000); // 1秒后尝试容错恢复
           }
@@ -1655,6 +1661,8 @@ function SearchPageClient() {
               setPendingScrollPosition(null);
               // 触发滚动恢复完成事件
               window.dispatchEvent(new CustomEvent('scrollRestoreComplete'));
+              // 额外触发底部导航栏位置检查事件
+              window.dispatchEvent(new CustomEvent('bottomNavPositionCheck'));
               return;
             }
             attempts += 1;
@@ -1668,6 +1676,8 @@ function SearchPageClient() {
                 setPendingScrollPosition(null);
                 // 触发滚动恢复完成事件
                 window.dispatchEvent(new CustomEvent('scrollRestoreComplete'));
+                // 额外触发底部导航栏位置检查事件
+                window.dispatchEvent(new CustomEvent('bottomNavPositionCheck'));
               }, 120);
               return;
             }
