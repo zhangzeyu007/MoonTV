@@ -1285,12 +1285,29 @@ function SearchPageClient() {
         ts: new Date().toISOString(),
       });
 
-      const getMaxScrollTop = () =>
-        Math.max(
-          document.body.scrollHeight - window.innerHeight,
-          document.documentElement.scrollHeight - window.innerHeight,
+      const getMaxScrollTop = () => {
+        // 使用更稳定的视口高度计算
+        let viewportHeight = window.innerHeight;
+
+        // 在iOS Safari中，使用更稳定的高度计算方法
+        if (isIOS) {
+          const docHeight = document.documentElement.clientHeight;
+          const windowHeight = window.innerHeight;
+
+          // 如果两者差异很大，说明视口高度不稳定，使用更保守的值
+          if (Math.abs(docHeight - windowHeight) > 50) {
+            viewportHeight = Math.min(docHeight, windowHeight);
+          } else {
+            viewportHeight = docHeight;
+          }
+        }
+
+        return Math.max(
+          document.body.scrollHeight - viewportHeight,
+          document.documentElement.scrollHeight - viewportHeight,
           0
         );
+      };
       const targetPosition = Math.max(
         0,
         Math.min(pendingScrollPosition, getMaxScrollTop())
@@ -2103,16 +2120,6 @@ function SearchPageClient() {
                   搜索框状态: "{searchQuery}" | 显示结果:{' '}
                   {showResults ? '是' : '否'} | 历史记录数:{' '}
                   {searchHistory.length}
-                </div>
-                <div className='text-xs text-blue-500'>
-                  滚动调试: iOS={isIOS ? '是' : '否'} | 待恢复位置:{' '}
-                  {pendingScrollPosition || '无'} | 当前滚动:{' '}
-                  {Math.round(window.scrollY || 0)}px
-                </div>
-                <div className='text-xs text-green-500'>
-                  状态: 已初始化={isInitialized ? '是' : '否'} | 导航返回=
-                  {isNavigatingBack ? '是' : '否'} | 已恢复=
-                  {hasRestoredState ? '是' : '否'}
                 </div>
               </div>
             )}

@@ -59,15 +59,35 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     const adjustBottomNav = () => {
       const navElement = navRef.current;
       if (navElement) {
-        // 确保导航栏始终在视口底部
+        // 使用更稳定的视口高度计算方法
         const rect = navElement.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
+
+        // 获取稳定的视口高度，优先使用 document.documentElement.clientHeight
+        let viewportHeight = window.innerHeight;
+
+        // 在iOS Safari中，使用更稳定的高度计算方法
+        if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+          // 使用 document.documentElement.clientHeight 作为主要参考
+          const docHeight = document.documentElement.clientHeight;
+          const windowHeight = window.innerHeight;
+
+          // 如果两者差异很大，说明视口高度不稳定，使用更保守的值
+          if (Math.abs(docHeight - windowHeight) > 50) {
+            viewportHeight = Math.min(docHeight, windowHeight);
+          } else {
+            viewportHeight = docHeight;
+          }
+        }
 
         // 如果导航栏不在底部，强制调整
         if (Math.abs(rect.bottom - viewportHeight) > 5) {
           navElement.style.bottom = '0px';
           navElement.style.position = 'fixed';
-          console.log('[底部导航栏] 已修复位置');
+          console.log('[底部导航栏] 已修复位置', {
+            rectBottom: rect.bottom,
+            viewportHeight,
+            diff: Math.abs(rect.bottom - viewportHeight),
+          });
         }
       }
     };
@@ -79,7 +99,10 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
 
     // 监听滚动恢复完成事件
     const handleScrollRestore = () => {
-      setTimeout(adjustBottomNav, 300);
+      // 延迟更长时间，确保滚动恢复完全完成
+      setTimeout(adjustBottomNav, 500);
+      // 额外延迟检查，确保iOS Safari视口高度稳定
+      setTimeout(adjustBottomNav, 1000);
     };
 
     // 监听页面可见性变化，确保从后台返回时导航栏位置正确
