@@ -127,8 +127,14 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
           const contentBottom = Math.max(bodyHeight, documentHeight);
           const targetBottom = Math.max(0, viewportHeight - contentBottom);
 
-          navElement.style.bottom = `${targetBottom}px`;
-          navElement.style.position = 'fixed';
+          // 强制设置样式，使用setProperty确保优先级
+          navElement.style.setProperty(
+            'bottom',
+            `${targetBottom}px`,
+            'important'
+          );
+          navElement.style.setProperty('position', 'fixed', 'important');
+          navElement.style.setProperty('transform', 'none', 'important');
           console.log('[底部导航栏] 搜索页内容不足，调整到底部', {
             rectBottom: rect.bottom,
             viewportHeight,
@@ -140,8 +146,9 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
           });
         } else {
           // 内容充足时，使用标准底部位置
-          navElement.style.bottom = '0px';
-          navElement.style.position = 'fixed';
+          navElement.style.setProperty('bottom', '0px', 'important');
+          navElement.style.setProperty('position', 'fixed', 'important');
+          navElement.style.setProperty('transform', 'none', 'important');
           console.log('[底部导航栏] 搜索页内容充足，使用标准底部位置', {
             rectBottom: rect.bottom,
             viewportHeight,
@@ -151,8 +158,9 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
         }
       } else {
         // 其他页面使用标准修复
-        navElement.style.bottom = '0px';
-        navElement.style.position = 'fixed';
+        navElement.style.setProperty('bottom', '0px', 'important');
+        navElement.style.setProperty('position', 'fixed', 'important');
+        navElement.style.setProperty('transform', 'none', 'important');
         console.log('[底部导航栏] 非搜索页，使用标准底部位置', {
           rectBottom: rect.bottom,
           viewportHeight,
@@ -201,7 +209,27 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
             newIsAtBottom,
             newIsBottomZero,
           });
-          forceFixPosition();
+
+          // 使用更强制的修复方法
+          navElement.style.setProperty('bottom', '0px', 'important');
+          navElement.style.setProperty('position', 'fixed', 'important');
+          navElement.style.setProperty('transform', 'none', 'important');
+          navElement.style.setProperty('top', 'auto', 'important');
+          navElement.style.setProperty('left', '0', 'important');
+          navElement.style.setProperty('right', '0', 'important');
+          navElement.style.setProperty('width', '100%', 'important');
+          navElement.style.setProperty('z-index', '600', 'important');
+
+          // 验证修复结果
+          setTimeout(() => {
+            const finalRect = navElement.getBoundingClientRect();
+            console.log('[底部导航栏] 强制修复后验证', {
+              finalRectBottom: finalRect.bottom,
+              viewportHeight,
+              finalDiff: Math.abs(finalRect.bottom - viewportHeight),
+              success: Math.abs(finalRect.bottom - viewportHeight) <= 10,
+            });
+          }, 50);
         }
       }, 100);
     }
