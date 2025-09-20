@@ -241,6 +241,17 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
         });
         forceFixPosition();
       }
+
+      // 额外检查：如果导航栏位置不正确，立即修复
+      if (!isAtBottom || isFarFromBottom) {
+        console.log('[底部导航栏] 搜索页额外修复检查', {
+          isAtBottom,
+          isFarFromBottom,
+          rectBottom: rect.bottom,
+          viewportHeight,
+        });
+        forceFixPosition();
+      }
     }
 
     // 移除延迟检查，避免干扰滚动功能
@@ -357,6 +368,9 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
         startPositionMonitoring();
         // 立即检查一次
         setTimeout(adjustBottomNav, 100);
+        // 额外延迟检查，确保从播放页返回时能正确修复
+        setTimeout(adjustBottomNav, 500);
+        setTimeout(adjustBottomNav, 1000);
       } else {
         stopPositionMonitoring();
       }
@@ -364,6 +378,19 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
 
     // 监听popstate事件，检测页面返回
     window.addEventListener('popstate', handlePathChange);
+
+    // 监听页面可见性变化，确保从播放页返回时能正确修复导航栏
+    const handleVisibilityChangeForNav = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        currentActive === '/search'
+      ) {
+        // 从后台返回时，延迟检查导航栏位置
+        setTimeout(adjustBottomNav, 200);
+        setTimeout(adjustBottomNav, 800);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChangeForNav);
 
     // 初始检查
     setTimeout(adjustBottomNav, 100);
@@ -374,6 +401,10 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       window.removeEventListener('resize', adjustBottomNav);
       window.removeEventListener('load', adjustBottomNav);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChangeForNav
+      );
       window.removeEventListener('scrollRestoreComplete', handleScrollRestore);
       window.removeEventListener(
         'bottomNavPositionCheck',

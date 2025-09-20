@@ -682,7 +682,7 @@ function SearchPageClient() {
     return null;
   }, []);
 
-  // 检测是否为从详情页返回 - 简化逻辑
+  // 检测是否为从详情页返回 - 增强逻辑
   const detectNavigationBack = useCallback(() => {
     if (typeof window === 'undefined') return false;
 
@@ -697,9 +697,26 @@ function SearchPageClient() {
       // 如果保存的状态时间戳很近（30分钟内），认为是从详情页返回
       const isRecentState = timeDiff < 30 * 60 * 1000; // 30分钟内
 
-      // 简化逻辑：只要有最近的状态就认为是返回导航
-      // navigation back detected based on recent timestamp
-      return isRecentState;
+      // 检查是否有返回触发标记
+      const returnTrigger = localStorage.getItem('searchReturnTrigger');
+      const hasReturnTrigger =
+        returnTrigger && Date.now() - parseInt(returnTrigger) < 5000; // 5秒内的返回触发
+
+      // 增强逻辑：有最近的状态或有返回触发标记就认为是返回导航
+      const isNavigationBack = isRecentState || hasReturnTrigger;
+
+      if (debugEnabledRef.current) {
+        console.log('[搜索页][导航检测]', {
+          isRecentState,
+          hasReturnTrigger,
+          isNavigationBack,
+          timeDiff,
+          returnTrigger,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      return isNavigationBack;
     } catch (error) {
       return false;
     }
@@ -1073,21 +1090,42 @@ function SearchPageClient() {
           });
         }
 
+        // 清除返回触发标记，避免重复触发
+        try {
+          localStorage.removeItem('searchReturnTrigger');
+        } catch (_) {
+          /* ignore */
+        }
+
         // 从详情页返回时，需要刷新数据但保持滚动位置
         if (savedState.query) {
           // 延迟刷新数据，确保状态先恢复
           setTimeout(() => {
             fetchSearchResults(savedState.query).then(() => {
               // 数据刷新完成后，如果还有待恢复的滚动位置，重新触发滚动恢复
-              if (pendingScrollPosition !== null) {
+              if (
+                savedState.scrollPosition !== undefined &&
+                savedState.scrollPosition > 0
+              ) {
                 // 使用setTimeout确保DOM更新完成
                 setTimeout(() => {
-                  setPendingScrollPosition(pendingScrollPosition);
+                  console.log('[搜索页][数据刷新后] 重新设置滚动位置', {
+                    scrollPosition: savedState.scrollPosition,
+                  });
+                  setPendingScrollPosition(savedState.scrollPosition);
                 }, 100);
               }
             });
           }, 50);
         }
+
+        // 额外触发底部导航栏位置检查，确保从播放页返回时导航栏位置正确
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('bottomNavPositionCheck'));
+        }, 200);
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('bottomNavPositionCheck'));
+        }, 800);
       } else if (urlQuery) {
         // 有URL参数，使用URL参数（用户主动搜索或直接访问）
         setSearchQuery(urlQuery);
@@ -1285,6 +1323,11 @@ function SearchPageClient() {
         ts: new Date().toISOString(),
       });
 
+      // 强制启用调试模式，确保能看到滚动恢复过程
+      if (typeof window !== 'undefined') {
+        (window as any).__FORCE_DEBUG_SCROLL__ = true;
+      }
+
       const getMaxScrollTop = () => {
         // 使用更稳定的视口高度计算
         let viewportHeight = window.innerHeight;
@@ -1330,7 +1373,11 @@ function SearchPageClient() {
       });
 
       if (targetPosition === 0) {
-        // console.log('[滚动位置恢复] 目标位置为0，跳过恢复');
+        console.log('[搜索页][滚动恢复] 目标位置为0，跳过恢复', {
+          originalPosition: pendingScrollPosition,
+          maxScrollTop: getMaxScrollTop(),
+          targetPosition,
+        });
         setPendingScrollPosition(null);
         return;
       }
@@ -1728,14 +1775,7 @@ function SearchPageClient() {
         waitForContent();
       }
     }
-  }, [
-    pendingScrollPosition,
-    showResults,
-    searchResults.length,
-    isIOS,
-    setScrollTop,
-    getScrollTop,
-  ]);
+  }, [pendingScrollPosition, showResults, searchResults.length, isIOS]);
 
   // 在组件作用域提供可复用的强制滚动恢复函数，供多个 effect 使用
   const _forceRestoreScroll = useCallback(
@@ -1780,14 +1820,16 @@ function SearchPageClient() {
 
   // 处理 bfcache（返回缓存）场景，确保从播放页返回时也能恢复
   useEffect(() => {
-    if (!isIOS) return; // 只在iOS上执行
-
     const restoreFromStorage = () => {
       try {
         const saved = localStorage.getItem('searchPageState');
         if (!saved) return;
         const parsed = JSON.parse(saved);
         if (parsed?.scrollPosition > 0) {
+          console.log('[搜索页][页面显示] 从存储恢复滚动位置', {
+            scrollPosition: parsed.scrollPosition,
+            isIOS,
+          });
           setPendingScrollPosition(parsed.scrollPosition);
         }
       } catch (_) {
@@ -1796,10 +1838,17 @@ function SearchPageClient() {
     };
 
     const onPageShow = (event: Event) => {
-      // 简化iOS恢复逻辑，减少延迟和重试
+      // 检查是否是从播放页返回
+      const returnTrigger = localStorage.getItem('searchReturnTrigger');
+      const hasReturnTrigger =
+        returnTrigger && Date.now() - parseInt(returnTrigger) < 10000; // 10秒内的返回触发
+
       if (event && 'persisted' in event && (event as any).persisted) {
         // 从缓存恢复
         setTimeout(restoreFromStorage, 100);
+      } else if (hasReturnTrigger) {
+        // 有返回触发标记，延迟恢复
+        setTimeout(restoreFromStorage, 200);
       } else {
         // 正常页面显示
         restoreFromStorage();
@@ -1807,7 +1856,15 @@ function SearchPageClient() {
     };
 
     const onPopState = () => {
-      restoreFromStorage();
+      // 检查是否是从播放页返回
+      const returnTrigger = localStorage.getItem('searchReturnTrigger');
+      const hasReturnTrigger =
+        returnTrigger && Date.now() - parseInt(returnTrigger) < 10000;
+
+      if (hasReturnTrigger) {
+        console.log('[搜索页][popstate] 检测到返回触发，恢复滚动位置');
+        setTimeout(restoreFromStorage, 100);
+      }
     };
 
     window.addEventListener('pageshow', onPageShow);
@@ -1916,8 +1973,16 @@ function SearchPageClient() {
             savedState.scrollPosition !== undefined &&
             savedState.scrollPosition > 0
           ) {
+            console.log('[搜索页][可见性变化] 恢复滚动位置', {
+              scrollPosition: savedState.scrollPosition,
+            });
             setPendingScrollPosition(savedState.scrollPosition);
           }
+
+          // 触发底部导航栏位置检查
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('bottomNavPositionCheck'));
+          }, 200);
         }
       }
     };
@@ -1927,6 +1992,46 @@ function SearchPageClient() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isInitialized, hasRestoredState, restoreSearchState]);
+
+  // 增强的滚动恢复机制：监听返回触发标记
+  useEffect(() => {
+    const checkReturnTrigger = () => {
+      try {
+        const returnTrigger = localStorage.getItem('searchReturnTrigger');
+        if (returnTrigger) {
+          const triggerTime = parseInt(returnTrigger);
+          const timeDiff = Date.now() - triggerTime;
+
+          // 如果返回触发标记在5秒内，且当前没有待恢复的滚动位置
+          if (timeDiff < 5000 && pendingScrollPosition === null) {
+            const savedState = localStorage.getItem('searchPageState');
+            if (savedState) {
+              const parsed = JSON.parse(savedState);
+              if (parsed?.scrollPosition > 0) {
+                console.log('[搜索页][返回触发检查] 恢复滚动位置', {
+                  scrollPosition: parsed.scrollPosition,
+                  timeDiff,
+                });
+                setPendingScrollPosition(parsed.scrollPosition);
+              }
+            }
+          }
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    };
+
+    // 定期检查返回触发标记
+    const interval = setInterval(checkReturnTrigger, 500);
+
+    // 初始检查
+    checkReturnTrigger();
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [pendingScrollPosition]);
 
   // 全局滚动位置监控和错误报告机制
   useEffect(() => {
