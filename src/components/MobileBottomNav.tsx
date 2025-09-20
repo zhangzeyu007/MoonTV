@@ -55,11 +55,27 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   // 添加动态位置调整逻辑，确保底部导航栏始终固定在底部
   const navRef = useRef<HTMLElement>(null);
   const positionCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastCheckTimeRef = useRef<number>(0);
 
   // 主动监测底部导航栏位置的函数
   const checkAndFixBottomNavPosition = useCallback(() => {
     const navElement = navRef.current;
     if (!navElement) return;
+
+    // 防抖机制：避免频繁检查
+    const now = Date.now();
+    const timeSinceLastCheck = now - lastCheckTimeRef.current;
+    const minInterval = 1000; // 最小间隔1秒
+
+    if (timeSinceLastCheck < minInterval) {
+      console.log('[底部导航栏] 防抖跳过检查', {
+        timeSinceLastCheck,
+        minInterval,
+      });
+      return;
+    }
+
+    lastCheckTimeRef.current = now;
 
     // 使用更稳定的视口高度计算方法
     const rect = navElement.getBoundingClientRect();
@@ -122,31 +138,19 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
         // 如果内容高度小于视口高度，说明内容不足一屏
         const isContentShort = maxContentHeight < viewportHeight;
 
-        // 检测是否为iOS设备
-        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-
         if (isContentShort) {
           // 内容不足一屏时，导航栏应该紧贴内容底部
           const contentBottom = Math.max(bodyHeight, documentHeight);
           const targetBottom = Math.max(0, viewportHeight - contentBottom);
 
-          // iOS设备使用更温和的样式设置，避免影响滚动
-          if (isIOS) {
-            navElement.style.setProperty(
-              'bottom',
-              `${targetBottom}px`,
-              'important'
-            );
-            navElement.style.setProperty('position', 'fixed', 'important');
-          } else {
-            navElement.style.setProperty(
-              'bottom',
-              `${targetBottom}px`,
-              'important'
-            );
-            navElement.style.setProperty('position', 'fixed', 'important');
-            navElement.style.setProperty('transform', 'none', 'important');
-          }
+          // 简化样式设置，避免影响滚动
+          navElement.style.setProperty(
+            'bottom',
+            `${targetBottom}px`,
+            'important'
+          );
+          navElement.style.setProperty('position', 'fixed', 'important');
+
           console.log('[底部导航栏] 搜索页内容不足，调整到底部', {
             rectBottom: rect.bottom,
             viewportHeight,
@@ -155,43 +159,28 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
             bodyHeight,
             documentHeight,
             isContentShort,
-            isIOS,
           });
         } else {
           // 内容充足时，使用标准底部位置
-          if (isIOS) {
-            navElement.style.setProperty('bottom', '0px', 'important');
-            navElement.style.setProperty('position', 'fixed', 'important');
-          } else {
-            navElement.style.setProperty('bottom', '0px', 'important');
-            navElement.style.setProperty('position', 'fixed', 'important');
-            navElement.style.setProperty('transform', 'none', 'important');
-          }
+          navElement.style.setProperty('bottom', '0px', 'important');
+          navElement.style.setProperty('position', 'fixed', 'important');
+
           console.log('[底部导航栏] 搜索页内容充足，使用标准底部位置', {
             rectBottom: rect.bottom,
             viewportHeight,
             maxContentHeight,
             isContentShort,
-            isIOS,
           });
         }
       } else {
         // 其他页面使用标准修复
-        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        navElement.style.setProperty('bottom', '0px', 'important');
+        navElement.style.setProperty('position', 'fixed', 'important');
 
-        if (isIOS) {
-          navElement.style.setProperty('bottom', '0px', 'important');
-          navElement.style.setProperty('position', 'fixed', 'important');
-        } else {
-          navElement.style.setProperty('bottom', '0px', 'important');
-          navElement.style.setProperty('position', 'fixed', 'important');
-          navElement.style.setProperty('transform', 'none', 'important');
-        }
         console.log('[底部导航栏] 非搜索页，使用标准底部位置', {
           rectBottom: rect.bottom,
           viewportHeight,
           currentBottom,
-          isIOS,
         });
       }
     };
@@ -216,46 +205,8 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       });
     }
 
-    // 在搜索页面时，只在必要时进行修复，避免频繁DOM操作影响滚动
-    if (currentActive === '/search') {
-      // 延迟一点时间，确保DOM完全渲染后再检查
-      setTimeout(() => {
-        const newRect = navElement.getBoundingClientRect();
-        const newIsAtBottom = Math.abs(newRect.bottom - viewportHeight) <= 10;
-        const newCurrentBottom = navElement.style.bottom;
-        const newIsBottomZero =
-          newCurrentBottom === '0px' ||
-          newCurrentBottom === '0' ||
-          newCurrentBottom === '';
-
-        if (!newIsAtBottom || !newIsBottomZero) {
-          console.log('[底部导航栏] 延迟检查发现位置问题，进行修复', {
-            newRectBottom: newRect.bottom,
-            viewportHeight,
-            newCurrentBottom,
-            newIsAtBottom,
-            newIsBottomZero,
-          });
-
-          // 使用更温和的修复方法，避免影响iOS滚动
-          navElement.style.setProperty('bottom', '0px', 'important');
-          navElement.style.setProperty('position', 'fixed', 'important');
-          // 移除可能影响滚动的transform设置
-          // navElement.style.setProperty('transform', 'none', 'important');
-
-          // 验证修复结果
-          setTimeout(() => {
-            const finalRect = navElement.getBoundingClientRect();
-            console.log('[底部导航栏] 修复后验证', {
-              finalRectBottom: finalRect.bottom,
-              viewportHeight,
-              finalDiff: Math.abs(finalRect.bottom - viewportHeight),
-              success: Math.abs(finalRect.bottom - viewportHeight) <= 10,
-            });
-          }, 50);
-        }
-      }, 200); // 增加延迟时间，减少对滚动的干扰
-    }
+    // 移除延迟检查，避免干扰滚动功能
+    // 只依赖事件触发的检查
   }, [currentActive]);
 
   useEffect(() => {
@@ -265,15 +216,27 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
 
     // 在滚动恢复后检查导航栏位置
     const checkAfterScroll = () => {
-      setTimeout(adjustBottomNav, 200);
+      // 检测是否为iOS设备
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+      // iOS设备使用更长的延迟，避免干扰滚动
+      const delay = isIOS ? 500 : 200;
+      setTimeout(adjustBottomNav, delay);
     };
 
     // 监听滚动恢复完成事件
     const handleScrollRestore = () => {
-      // 延迟更长时间，确保滚动恢复完全完成
-      setTimeout(adjustBottomNav, 500);
-      // 额外延迟检查，确保iOS Safari视口高度稳定
-      setTimeout(adjustBottomNav, 1000);
+      // 检测是否为iOS设备
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+      if (isIOS) {
+        // iOS设备使用更长的延迟，确保滚动完全完成
+        setTimeout(adjustBottomNav, 1000);
+        setTimeout(adjustBottomNav, 2000);
+      } else {
+        // 非iOS设备使用较短延迟
+        setTimeout(adjustBottomNav, 500);
+        setTimeout(adjustBottomNav, 1000);
+      }
     };
 
     // 监听页面可见性变化，确保从后台返回时导航栏位置正确
@@ -322,8 +285,10 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
       if (isIOS) {
-        // iOS设备不启动定时检查，只依赖事件触发，避免影响滚动性能
-        console.log('[底部导航栏] iOS设备，跳过定时检查，仅依赖事件触发');
+        // iOS设备使用更长的检查间隔，减少对滚动的干扰
+        console.log('[底部导航栏] iOS设备，使用长间隔检查');
+        // 启动定时检查，但使用更长的间隔
+        startPositionMonitoring();
       } else {
         // 非iOS设备启动定时检查
         startPositionMonitoring();
@@ -350,18 +315,10 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     // 监听页面路径变化，在搜索页面时启动监测
     const handlePathChange = () => {
       if (currentActive === '/search') {
-        // 检测是否为iOS设备
-        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-        if (isIOS) {
-          // iOS设备不启动定时检查，只立即检查一次
-          console.log('[底部导航栏] iOS设备路径变化，立即检查一次');
-          setTimeout(adjustBottomNav, 100);
-        } else {
-          // 非iOS设备启动定时检查
-          startPositionMonitoring();
-          setTimeout(adjustBottomNav, 100);
-        }
+        // 启动定时检查
+        startPositionMonitoring();
+        // 立即检查一次
+        setTimeout(adjustBottomNav, 100);
       } else {
         stopPositionMonitoring();
       }
