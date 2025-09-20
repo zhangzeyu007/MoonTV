@@ -40,6 +40,8 @@ interface EpisodeSelectorProps {
   sourceSearchError?: string | null;
   /** 预计算的测速结果，避免重复测速 */
   precomputedVideoInfo?: Map<string, VideoInfo>;
+  /** 详情内容 */
+  children?: React.ReactNode;
 }
 
 /**
@@ -58,6 +60,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   sourceSearchLoading = false,
   sourceSearchError = null,
   precomputedVideoInfo,
+  children,
 }) => {
   const router = useRouter();
   const pageCount = Math.ceil(totalEpisodes / episodesPerPage);
@@ -83,9 +86,9 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     videoInfoMapRef.current = videoInfoMap;
   }, [videoInfoMap]);
 
-  // 主要的 tab 状态：'episodes' 或 'sources'
+  // 主要的 tab 状态：'episodes' 或 'sources' 或 'detail'
   // 当只有一集时默认展示 "换源"，并隐藏 "选集" 标签
-  const [activeTab, setActiveTab] = useState<'episodes' | 'sources'>(
+  const [activeTab, setActiveTab] = useState<'episodes' | 'sources' | 'detail'>(
     totalEpisodes > 1 ? 'episodes' : 'sources'
   );
 
@@ -306,6 +309,18 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           `.trim()}
         >
           换源
+        </div>
+        <div
+          onClick={() => setActiveTab('detail')}
+          className={`flex-1 py-3 px-6 text-center cursor-pointer transition-all duration-200 font-medium
+            ${
+              activeTab === 'detail'
+                ? 'text-green-600 dark:text-green-400'
+                : 'text-gray-700 hover:text-green-600 bg-black/5 dark:bg-white/5 dark:text-gray-300 dark:hover:text-green-400 hover:bg-black/3 dark:hover:bg-white/3'
+            }
+          `.trim()}
+        >
+          详情
         </div>
       </div>
 
@@ -593,6 +608,16 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                 </div>
               </div>
             )}
+        </div>
+      )}
+
+      {/* 详情 Tab 内容 */}
+      {activeTab === 'detail' && (
+        <div className='flex flex-col h-full mt-4'>
+          <div className='flex-1 overflow-y-auto space-y-4 pb-20'>
+            {/* 详情内容将通过props传入 */}
+            {children}
+          </div>
         </div>
       )}
     </div>

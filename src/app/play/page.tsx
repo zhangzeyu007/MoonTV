@@ -1829,75 +1829,109 @@ function PlayPageClient() {
                 sourceSearchLoading={sourceSearchLoading}
                 sourceSearchError={sourceSearchError}
                 precomputedVideoInfo={precomputedVideoInfo}
-              />
-            </div>
-          </div>
-        </div>
+              >
+                {/* 详情内容 - PC端和移动端都采用上下布局 */}
+                <div className='flex flex-col items-center gap-6 p-6'>
+                  {/* 封面展示 - 始终在上方 */}
+                  <div className='flex justify-center flex-shrink-0'>
+                    <div className='bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-800 aspect-[2/3] w-40 sm:w-48 lg:w-56 xl:w-64 flex items-center justify-center rounded-xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 border border-gray-200/50 dark:border-gray-600/50'>
+                      {videoCover ? (
+                        <img
+                          src={processImageUrl(videoCover)}
+                          alt={videoTitle}
+                          className='w-full h-full object-cover hover:scale-105 transition-transform duration-300'
+                        />
+                      ) : (
+                        <div className='flex flex-col items-center justify-center text-gray-500 dark:text-gray-400'>
+                          <svg
+                            className='w-12 h-12 mb-2'
+                            fill='currentColor'
+                            viewBox='0 0 20 20'
+                          >
+                            <path
+                              fillRule='evenodd'
+                              d='M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z'
+                              clipRule='evenodd'
+                            />
+                          </svg>
+                          <span className='text-sm font-medium'>封面图片</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
-        {/* 详情展示 */}
-        <div className='grid grid-cols-1 md:grid-cols-4 gap-4'>
-          {/* 文字区 */}
-          <div className='md:col-span-3'>
-            <div className='p-6 flex flex-col'>
-              {/* 标题 */}
-              <h1 className='text-3xl font-bold mb-2 tracking-wide flex items-center flex-shrink-0 text-center md:text-left w-full'>
-                {videoTitle || '影片标题'}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleToggleFavorite();
-                  }}
-                  className='ml-3 flex-shrink-0 hover:opacity-80 transition-opacity'
-                >
-                  <FavoriteIcon filled={favorited} />
-                </button>
-              </h1>
+                  {/* 文字区 - 始终在下方 */}
+                  <div className='flex-1 w-full'>
+                    <div className='flex flex-col h-full space-y-6'>
+                      {/* 标题和收藏按钮 */}
+                      <div className='flex items-start justify-between gap-4'>
+                        <h1 className='text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-gray-900 dark:text-gray-100 leading-tight flex-1'>
+                          {videoTitle || '影片标题'}
+                        </h1>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleFavorite();
+                          }}
+                          className='flex-shrink-0 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200 group'
+                          title={favorited ? '取消收藏' : '添加收藏'}
+                        >
+                          <FavoriteIcon filled={favorited} />
+                        </button>
+                      </div>
 
-              {/* 关键信息行 */}
-              <div className='flex flex-wrap items-center gap-3 text-base mb-4 opacity-80 flex-shrink-0'>
-                {detail?.class && (
-                  <span className='text-green-600 font-semibold'>
-                    {detail.class}
-                  </span>
-                )}
-                {(detail?.year || videoYear) && (
-                  <span>{detail?.year || videoYear}</span>
-                )}
-                {detail?.source_name && (
-                  <span className='border border-gray-500/60 px-2 py-[1px] rounded'>
-                    {detail.source_name}
-                  </span>
-                )}
-                {detail?.type_name && <span>{detail.type_name}</span>}
-              </div>
-              {/* 剧情简介 */}
-              {detail?.desc && (
-                <div
-                  className='mt-0 text-base leading-relaxed opacity-90'
-                  style={{ whiteSpace: 'pre-line' }}
-                >
-                  {detail.desc}
+                      {/* 关键信息行 */}
+                      <div className='flex flex-wrap items-center gap-3 text-sm sm:text-base'>
+                        {detail?.class && (
+                          <span className='inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'>
+                            {detail.class}
+                          </span>
+                        )}
+                        {(detail?.year || videoYear) && (
+                          <span className='inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'>
+                            {detail?.year || videoYear}
+                          </span>
+                        )}
+                        {detail?.source_name && (
+                          <span className='inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300 border border-gray-200 dark:border-gray-600'>
+                            {detail.source_name}
+                          </span>
+                        )}
+                        {detail?.type_name && (
+                          <span className='inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'>
+                            {detail.type_name}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 剧情简介 */}
+                      {detail?.desc && (
+                        <div className='flex-grow'>
+                          <h2 className='text-lg sm:text-xl font-semibold mb-3 text-gray-800 dark:text-gray-200 flex items-center'>
+                            <svg
+                              className='w-5 h-5 mr-2 text-green-600 dark:text-green-400'
+                              fill='currentColor'
+                              viewBox='0 0 20 20'
+                            >
+                              <path
+                                fillRule='evenodd'
+                                d='M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z'
+                                clipRule='evenodd'
+                              />
+                            </svg>
+                            剧情简介
+                          </h2>
+                          <div className='bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700'>
+                            <p className='text-sm sm:text-base leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-line'>
+                              {detail.desc}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* 封面展示 */}
-          <div className='hidden md:block md:col-span-1 md:order-first'>
-            <div className='pl-0 py-4 pr-6'>
-              <div className='bg-gray-300 dark:bg-gray-700 aspect-[2/3] flex items-center justify-center rounded-xl overflow-hidden'>
-                {videoCover ? (
-                  <img
-                    src={processImageUrl(videoCover)}
-                    alt={videoTitle}
-                    className='w-full h-full object-cover'
-                  />
-                ) : (
-                  <span className='text-gray-600 dark:text-gray-400'>
-                    封面图片
-                  </span>
-                )}
-              </div>
+              </EpisodeSelector>
             </div>
           </div>
         </div>
