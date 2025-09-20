@@ -2028,7 +2028,7 @@ function SearchPageClient() {
 
   return (
     <PageLayout activePath='/search'>
-      <div className='px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-10'>
+      <div className='px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-6 sm:mb-8'>
         {/* 搜索框 */}
         <div className='mb-8'>
           <form onSubmit={handleSearch} className='max-w-3xl mx-auto'>
@@ -2104,7 +2104,7 @@ function SearchPageClient() {
               <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-green-500'></div>
             </div>
           ) : showResults ? (
-            <section className='mb-12'>
+            <section className='mb-8'>
               {/* 标题 + 聚合开关 */}
               <div className='mb-8 flex items-center justify-between'>
                 <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
@@ -2199,7 +2199,7 @@ function SearchPageClient() {
             </section>
           ) : searchHistory.length > 0 ? (
             // 搜索历史
-            <section className='mb-12'>
+            <section className='mb-8'>
               <h2 className='mb-4 text-xl font-bold text-gray-800 text-left dark:text-gray-200'>
                 搜索历史
                 {searchHistory.length > 0 && (

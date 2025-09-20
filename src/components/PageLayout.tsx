@@ -42,9 +42,9 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
 
           {/* 主内容 */}
           <main
-            className='flex-1 md:min-h-0 mb-14 md:mb-0'
+            className='flex-1 md:min-h-0 mb-12 md:mb-0'
             style={{
-              paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
+              paddingBottom: 'calc(3rem + env(safe-area-inset-bottom))',
             }}
           >
             {children}
