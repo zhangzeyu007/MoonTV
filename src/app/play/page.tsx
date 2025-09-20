@@ -1674,7 +1674,7 @@ function PlayPageClient() {
 
   return (
     <PageLayout activePath='/play'>
-      <div className='flex flex-col gap-3 py-4 px-5 lg:px-[3rem] 2xl:px-20 search-content-container'>
+      <div className='flex flex-col gap-3 py-4 px-5 lg:px-[3rem] 2xl:px-20'>
         {/* 第一行：影片标题 */}
         <div className='py-1'>
           <h1 className='text-xl font-semibold text-gray-900 dark:text-gray-100'>
@@ -1835,10 +1835,10 @@ function PlayPageClient() {
         </div>
 
         {/* 详情展示 */}
-        <div className='grid grid-cols-1 md:grid-cols-4 gap-4 search-results-container'>
+        <div className='grid grid-cols-1 md:grid-cols-4 gap-4'>
           {/* 文字区 */}
           <div className='md:col-span-3'>
-            <div className='p-6 flex flex-col min-h-0'>
+            <div className='p-6 flex flex-col'>
               {/* 标题 */}
               <h1 className='text-3xl font-bold mb-2 tracking-wide flex items-center flex-shrink-0 text-center md:text-left w-full'>
                 {videoTitle || '影片标题'}
@@ -1873,7 +1873,7 @@ function PlayPageClient() {
               {/* 剧情简介 */}
               {detail?.desc && (
                 <div
-                  className='mt-0 text-base leading-relaxed opacity-90 overflow-y-auto pr-2 flex-1 min-h-0 scrollbar-hide'
+                  className='mt-0 text-base leading-relaxed opacity-90'
                   style={{ whiteSpace: 'pre-line' }}
                 >
                   {detail.desc}
