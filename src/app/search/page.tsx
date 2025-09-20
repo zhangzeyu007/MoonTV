@@ -2028,7 +2028,7 @@ function SearchPageClient() {
 
   return (
     <PageLayout activePath='/search'>
-      <div className='px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-6 sm:mb-8'>
+      <div className='px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-6 sm:mb-8 search-content-container'>
         {/* 搜索框 */}
         <div className='mb-8'>
           <form onSubmit={handleSearch} className='max-w-3xl mx-auto'>
@@ -2098,7 +2098,7 @@ function SearchPageClient() {
         </div>
 
         {/* 搜索结果或搜索历史 */}
-        <div className='max-w-[95%] mx-auto mt-12 overflow-visible'>
+        <div className='max-w-[95%] mx-auto mt-12 search-results-container'>
           {isLoading ? (
             <div className='flex justify-center items-center h-40'>
               <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-green-500'></div>

@@ -198,3 +198,24 @@ div[data-media-provider] video {
     display: none !important;
   }
 }
+
+/* iOS 键盘适配的搜索页面布局 */
+.search-content-container {
+  /* 限制搜索页面内容的最大高度，但保持全局滚动 */
+  max-height: calc(100dvh - 3.5rem - env(safe-area-inset-bottom) - 2rem);
+  min-height: calc(50vh - 3.5rem - env(safe-area-inset-bottom));
+}
+
+.search-results-container {
+  /* 搜索结果区域，保持全局滚动以支持滚动恢复功能 */
+  overflow-x: hidden;
+}
+
+/* iOS Safari 键盘弹出时的特殊处理 */
+@supports (-webkit-touch-callout: none) {
+  .search-content-container {
+    /* iOS 键盘弹出时，使用更保守的高度计算 */
+    max-height: calc(100vh - 3.5rem - env(safe-area-inset-bottom) - 2rem);
+    height: calc(100vh - 3.5rem - env(safe-area-inset-bottom) - 2rem);
+  }
+}

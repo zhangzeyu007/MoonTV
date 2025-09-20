@@ -1,3 +1,11 @@
+/*
+ * @Description:
+ * @Author: 张泽雨
+ * @Date: 2025-09-20 11:24:02
+ * @LastEditors: 张泽雨
+ * @LastEditTime: 2025-09-20 11:54:27
+ * @FilePath: /MoonTV/src/components/PageLayout.tsx
+ */
 import { BackButton } from './BackButton';
 import { LogoutButton } from './LogoutButton';
 import MobileBottomNav from './MobileBottomNav';
