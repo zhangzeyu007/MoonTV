@@ -219,3 +219,72 @@ div[data-media-provider] video {
     height: calc(100vh - 3.5rem - env(safe-area-inset-bottom) - 2rem);
   }
 }
+
+/* iOS 键盘适配的播放页面布局 */
+.play-content-container {
+  /* 限制播放页面内容的最大高度，但保持全局滚动 */
+  max-height: calc(100dvh - 3.5rem - env(safe-area-inset-bottom) - 2rem);
+  min-height: calc(50vh - 3.5rem - env(safe-area-inset-bottom));
+  overflow-y: auto;
+  /* 确保内容区域不会超出视口 */
+  position: relative;
+}
+
+/* 播放页播放器区域特殊处理 */
+.play-video-section {
+  /* 播放器区域在移动端需要特殊处理，避免被键盘遮挡 */
+  flex-shrink: 0;
+  /* 确保播放器区域在移动端有合适的最小高度 */
+  min-height: 200px;
+}
+
+/* 播放页选集区域特殊处理 */
+.play-episode-section {
+  /* 选集区域在移动端需要特殊处理 */
+  flex-shrink: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+  /* 确保选集区域在移动端有合适的最小高度 */
+  min-height: 200px;
+}
+
+/* iOS Safari 键盘弹出时的播放页特殊处理 */
+@supports (-webkit-touch-callout: none) {
+  .play-content-container {
+    /* iOS 键盘弹出时，使用更保守的高度计算 */
+    max-height: calc(100vh - 3.5rem - env(safe-area-inset-bottom) - 2rem);
+    height: calc(100vh - 3.5rem - env(safe-area-inset-bottom) - 2rem);
+  }
+
+  .play-video-section {
+    /* iOS键盘弹出时，播放器区域高度自适应 */
+    max-height: calc(60vh - 3.5rem - env(safe-area-inset-bottom));
+    /* 确保播放器在键盘弹出时仍然可见 */
+    min-height: 150px;
+  }
+
+  .play-episode-section {
+    /* iOS键盘弹出时，选集区域高度自适应 */
+    max-height: calc(40vh - 3.5rem - env(safe-area-inset-bottom));
+    /* 确保选集区域在键盘弹出时仍然可用 */
+    min-height: 150px;
+  }
+}
+
+/* 移动端播放页额外优化 */
+@media (max-width: 768px) {
+  .play-content-container {
+    /* 移动端播放页内容区域优化 */
+    padding-bottom: 1rem;
+  }
+
+  .play-video-section {
+    /* 移动端播放器区域优化 */
+    margin-bottom: 0.5rem;
+  }
+
+  .play-episode-section {
+    /* 移动端选集区域优化 */
+    margin-top: 0.5rem;
+  }
+}
