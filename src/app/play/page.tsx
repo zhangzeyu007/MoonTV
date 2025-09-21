@@ -1171,10 +1171,27 @@ function PlayPageClient() {
       artPlayerRef.current = null;
     }
 
+    // 保存原始的 console.error 以便后续恢复
+    const originalConsoleError = console.error;
+
     try {
       // 创建新的播放器实例
       Artplayer.PLAYBACK_RATE = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
       Artplayer.USE_RAF = true;
+
+      // 添加全局错误处理，防止 composedPath 等错误
+      console.error = (...args) => {
+        // 过滤掉 composedPath 相关的错误，避免控制台污染
+        const errorMessage = args.join(' ');
+        if (
+          errorMessage.includes('composedPath') ||
+          errorMessage.includes('undefined is not an object')
+        ) {
+          console.warn('Filtered composedPath error:', ...args);
+          return;
+        }
+        originalConsoleError.apply(console, args);
+      };
 
       artPlayerRef.current = new Artplayer({
         container: artRef.current,
@@ -1389,16 +1406,31 @@ function PlayPageClient() {
       });
 
       // 监听播放器事件
-      artPlayerRef.current.on('ready', () => {
+      artPlayerRef.current.on('ready', (e: any) => {
+        // 添加事件对象验证，防止 composedPath 错误
+        if (!e || typeof e !== 'object') {
+          console.warn('Invalid event object in ready handler');
+          return;
+        }
         setError(null);
       });
 
-      artPlayerRef.current.on('video:volumechange', () => {
+      artPlayerRef.current.on('video:volumechange', (e: any) => {
+        // 添加事件对象验证，防止 composedPath 错误
+        if (!e || typeof e !== 'object') {
+          console.warn('Invalid event object in volumechange handler');
+          return;
+        }
         lastVolumeRef.current = artPlayerRef.current.volume;
       });
 
       // 监听视频可播放事件，这时恢复播放进度更可靠
-      artPlayerRef.current.on('video:canplay', () => {
+      artPlayerRef.current.on('video:canplay', (e: any) => {
+        // 添加事件对象验证，防止 composedPath 错误
+        if (!e || typeof e !== 'object') {
+          console.warn('Invalid event object in canplay handler');
+          return;
+        }
         // 若存在需要恢复的播放进度，则跳转
         if (resumeTimeRef.current && resumeTimeRef.current > 0) {
           try {
@@ -1429,6 +1461,11 @@ function PlayPageClient() {
       });
 
       artPlayerRef.current.on('error', (err: any) => {
+        // 添加事件对象验证，防止 composedPath 错误
+        if (!err || typeof err !== 'object') {
+          console.warn('Invalid event object in error handler');
+          return;
+        }
         console.error('播放器错误:', err);
         if (artPlayerRef.current.currentTime > 0) {
           return;
@@ -1436,7 +1473,12 @@ function PlayPageClient() {
       });
 
       // 监听视频播放结束事件，自动播放下一集
-      artPlayerRef.current.on('video:ended', () => {
+      artPlayerRef.current.on('video:ended', (e: any) => {
+        // 添加事件对象验证，防止 composedPath 错误
+        if (!e || typeof e !== 'object') {
+          console.warn('Invalid event object in ended handler');
+          return;
+        }
         const d = detailRef.current;
         const idx = currentEpisodeIndexRef.current;
         if (d && d.episodes && idx < d.episodes.length - 1) {
@@ -1447,20 +1489,35 @@ function PlayPageClient() {
       });
 
       // 监听拖拽开始事件
-      artPlayerRef.current.on('video:seeking', () => {
+      artPlayerRef.current.on('video:seeking', (e: any) => {
+        // 添加事件对象验证，防止 composedPath 错误
+        if (!e || typeof e !== 'object') {
+          console.warn('Invalid event object in seeking handler');
+          return;
+        }
         isSeekingRef.current = true;
         console.log('开始拖拽进度条');
       });
 
       // 监听拖拽结束事件
-      artPlayerRef.current.on('video:seeked', () => {
+      artPlayerRef.current.on('video:seeked', (e: any) => {
+        // 添加事件对象验证，防止 composedPath 错误
+        if (!e || typeof e !== 'object') {
+          console.warn('Invalid event object in seeked handler');
+          return;
+        }
         isSeekingRef.current = false;
         console.log('结束拖拽进度条');
         // 拖拽结束后立即保存一次进度
         saveCurrentPlayProgress(true);
       });
 
-      artPlayerRef.current.on('video:timeupdate', () => {
+      artPlayerRef.current.on('video:timeupdate', (e: any) => {
+        // 添加事件对象验证，防止 composedPath 错误
+        if (!e || typeof e !== 'object') {
+          console.warn('Invalid event object in timeupdate handler');
+          return;
+        }
         const now = Date.now();
         let interval = 5000;
         if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'd1') {
@@ -1475,7 +1532,12 @@ function PlayPageClient() {
         }
       });
 
-      artPlayerRef.current.on('pause', () => {
+      artPlayerRef.current.on('pause', (e: any) => {
+        // 添加事件对象验证，防止 composedPath 错误
+        if (!e || typeof e !== 'object') {
+          console.warn('Invalid event object in pause handler');
+          return;
+        }
         saveCurrentPlayProgress(true); // 暂停时立即保存
       });
 
@@ -1485,7 +1547,12 @@ function PlayPageClient() {
           videoUrl
         );
       }
+
+      // 恢复原始的 console.error
+      console.error = originalConsoleError;
     } catch (err) {
+      // 恢复原始的 console.error
+      console.error = originalConsoleError;
       console.error('创建播放器失败:', err);
       setError('播放器初始化失败');
     }
