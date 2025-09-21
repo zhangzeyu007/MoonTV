@@ -1,5 +1,6 @@
 /* eslint-disable @next/next/no-img-element */
 
+import { Heart } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import React, {
   useCallback,
@@ -40,6 +41,12 @@ interface EpisodeSelectorProps {
   sourceSearchError?: string | null;
   /** 预计算的测速结果，避免重复测速 */
   precomputedVideoInfo?: Map<string, VideoInfo>;
+  /** 当前播放的详情信息 */
+  currentDetail?: SearchResult | null;
+  /** 收藏状态 */
+  favorited?: boolean;
+  /** 收藏切换回调 */
+  onToggleFavorite?: () => void;
 }
 
 /**
@@ -58,6 +65,9 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   sourceSearchLoading = false,
   sourceSearchError = null,
   precomputedVideoInfo,
+  currentDetail,
+  favorited = false,
+  onToggleFavorite,
 }) => {
   const router = useRouter();
   const pageCount = Math.ceil(totalEpisodes / episodesPerPage);
@@ -83,11 +93,11 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     videoInfoMapRef.current = videoInfoMap;
   }, [videoInfoMap]);
 
-  // 主要的 tab 状态：'episodes' 或 'sources'
+  // 主要的 tab 状态：'episodes'、'sources' 或 'details'
   // 当只有一集时默认展示 "换源"，并隐藏 "选集" 标签
-  const [activeTab, setActiveTab] = useState<'episodes' | 'sources'>(
-    totalEpisodes > 1 ? 'episodes' : 'sources'
-  );
+  const [activeTab, setActiveTab] = useState<
+    'episodes' | 'sources' | 'details'
+  >(totalEpisodes > 1 ? 'episodes' : 'sources');
 
   // 当前分页索引（0 开始）
   const initialPage = Math.floor((value - 1) / episodesPerPage);
@@ -306,6 +316,18 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           `.trim()}
         >
           换源
+        </div>
+        <div
+          onClick={() => setActiveTab('details')}
+          className={`flex-1 py-3 px-6 text-center cursor-pointer transition-all duration-200 font-medium
+            ${
+              activeTab === 'details'
+                ? 'text-green-600 dark:text-green-400'
+                : 'text-gray-700 hover:text-green-600 bg-black/5 dark:bg-white/5 dark:text-gray-300 dark:hover:text-green-400 hover:bg-black/3 dark:hover:bg-white/3'
+            }
+          `.trim()}
+        >
+          详情
         </div>
       </div>
 
@@ -595,7 +617,195 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             )}
         </div>
       )}
+
+      {/* 详情 Tab 内容 */}
+      {activeTab === 'details' && (
+        <div className='flex flex-col h-full mt-1'>
+          {currentDetail ? (
+            <div className='flex-1 overflow-y-auto space-y-4 pb-16 px-1 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent'>
+              {/* 标题和收藏按钮 */}
+              <div className='relative'>
+                <div className='flex items-start justify-between gap-2'>
+                  <h2 className='text-lg font-bold text-gray-900 dark:text-gray-100 leading-tight flex-1'>
+                    {currentDetail.title || videoTitle || '影片标题'}
+                  </h2>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleFavorite?.();
+                    }}
+                    className='flex-shrink-0 p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 hover:scale-110'
+                    title={favorited ? '取消收藏' : '添加收藏'}
+                  >
+                    <FavoriteIcon filled={favorited} />
+                  </button>
+                </div>
+                {/* 装饰性下划线 */}
+                <div className='mt-2 h-0.5 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full'></div>
+              </div>
+
+              {/* 关键信息卡片 */}
+              <div className='bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 rounded-lg p-3 border border-gray-200/50 dark:border-gray-600/50'>
+                <div className='flex flex-wrap items-center gap-2'>
+                  {currentDetail.class && (
+                    <span className='inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-700'>
+                      🎭 {currentDetail.class}
+                    </span>
+                  )}
+                  {currentDetail.year && (
+                    <span className='inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-700'>
+                      📅 {currentDetail.year}
+                    </span>
+                  )}
+                  {currentDetail.source_name && (
+                    <span className='inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border border-purple-200 dark:border-purple-700'>
+                      🎬 {currentDetail.source_name}
+                    </span>
+                  )}
+                  {currentDetail.type_name && (
+                    <span className='inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-700'>
+                      🏷️ {currentDetail.type_name}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* 剧情简介 */}
+              {currentDetail.desc && (
+                <div className='space-y-2'>
+                  <div className='flex items-center gap-2'>
+                    <div className='w-1 h-5 bg-gradient-to-b from-green-500 to-emerald-500 rounded-full'></div>
+                    <h3 className='text-base font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2'>
+                      📖 剧情简介
+                    </h3>
+                  </div>
+                  <div className='bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200/50 dark:border-gray-600/50 shadow-sm'>
+                    <div
+                      className='text-xs leading-relaxed text-gray-700 dark:text-gray-300 overflow-y-auto pr-2 pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent max-h-44'
+                      style={{ whiteSpace: 'pre-line' }}
+                    >
+                      {currentDetail.desc}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 播放信息 */}
+              {currentDetail.episodes && currentDetail.episodes.length > 0 && (
+                <div className='space-y-2'>
+                  <div className='flex items-center gap-2'>
+                    <div className='w-1 h-5 bg-gradient-to-b from-blue-500 to-cyan-500 rounded-full'></div>
+                    <h3 className='text-base font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2'>
+                      🎥 播放信息
+                    </h3>
+                  </div>
+                  <div className='bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 rounded-lg p-3 border border-blue-200/50 dark:border-blue-600/50'>
+                    <div className='flex items-center justify-between'>
+                      <div className='flex items-center gap-2'>
+                        <div className='w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center'>
+                          <span className='text-white font-bold text-xs'>
+                            {currentDetail.episodes.length}
+                          </span>
+                        </div>
+                        <div>
+                          <div className='text-xs font-semibold text-gray-900 dark:text-gray-100'>
+                            总集数
+                          </div>
+                          <div className='text-xs text-gray-600 dark:text-gray-400'>
+                            {currentDetail.episodes.length > 1
+                              ? '多集连续剧'
+                              : '单集电影'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className='text-right'>
+                        <div className='text-lg font-bold text-blue-600 dark:text-blue-400'>
+                          {currentDetail.episodes.length}
+                        </div>
+                        <div className='text-xs text-gray-500 dark:text-gray-400'>
+                          集
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 豆瓣信息 */}
+              {currentDetail.douban_id && (
+                <div className='space-y-2 mb-4'>
+                  <div className='flex items-center gap-2'>
+                    <div className='w-1 h-5 bg-gradient-to-b from-yellow-500 to-orange-500 rounded-full'></div>
+                    <h3 className='text-base font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2'>
+                      ⭐ 豆瓣信息
+                    </h3>
+                  </div>
+                  <div className='bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 rounded-lg p-3 border border-yellow-200/50 dark:border-yellow-600/50'>
+                    <div className='flex items-center gap-2'>
+                      <div className='w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center'>
+                        <span className='text-white font-bold text-xs'>豆</span>
+                      </div>
+                      <div>
+                        <div className='text-xs font-semibold text-gray-900 dark:text-gray-100'>
+                          豆瓣ID: {currentDetail.douban_id}
+                        </div>
+                        <div className='text-xs text-gray-600 dark:text-gray-400'>
+                          查看详细评分和评论
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className='flex items-center justify-center py-8'>
+              <div className='text-center max-w-sm mx-auto'>
+                <div className='relative mb-4'>
+                  <div className='w-16 h-16 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 rounded-xl flex items-center justify-center mx-auto shadow-lg'>
+                    <span className='text-2xl'>📺</span>
+                  </div>
+                  <div className='absolute -top-1 -right-1 w-5 h-5 bg-gray-300 dark:bg-gray-600 rounded-full flex items-center justify-center'>
+                    <span className='text-xs'>❓</span>
+                  </div>
+                </div>
+                <h3 className='text-base font-semibold text-gray-900 dark:text-gray-100 mb-2'>
+                  暂无详情信息
+                </h3>
+                <p className='text-xs text-gray-600 dark:text-gray-400 leading-relaxed'>
+                  该影片的详细信息暂时无法获取，请稍后再试或尝试其他播放源
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
+  );
+};
+
+// FavoriteIcon 组件
+const FavoriteIcon = ({ filled }: { filled: boolean }) => {
+  if (filled) {
+    return (
+      <svg
+        className='h-5 w-5'
+        viewBox='0 0 24 24'
+        xmlns='http://www.w3.org/2000/svg'
+      >
+        <path
+          d='M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'
+          fill='#ef4444' /* Tailwind red-500 */
+          stroke='#ef4444'
+          strokeWidth='2'
+          strokeLinecap='round'
+          strokeLinejoin='round'
+        />
+      </svg>
+    );
+  }
+  return (
+    <Heart className='h-5 w-5 stroke-[1] text-gray-600 dark:text-gray-300' />
   );
 };
 
