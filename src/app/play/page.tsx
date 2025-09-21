@@ -178,6 +178,8 @@ function PlayPageClient() {
   // 播放进度保存相关
   const saveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSaveTimeRef = useRef<number>(0);
+  const isSeekingRef = useRef<boolean>(false);
+  const saveProgressDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
   const artPlayerRef = useRef<any>(null);
   const artRef = useRef<HTMLDivElement | null>(null);
@@ -922,14 +924,15 @@ function PlayPageClient() {
   // ---------------------------------------------------------------------------
   // 播放记录相关
   // ---------------------------------------------------------------------------
-  // 保存播放进度
-  const saveCurrentPlayProgress = async () => {
+  // 保存播放进度（带防抖机制）
+  const saveCurrentPlayProgress = async (immediate = false) => {
     if (
       !artPlayerRef.current ||
       !currentSourceRef.current ||
       !currentIdRef.current ||
       !videoTitleRef.current ||
-      !detailRef.current?.source_name
+      !detailRef.current?.source_name ||
+      isSeekingRef.current // 如果正在拖拽，不保存
     ) {
       return;
     }
@@ -939,6 +942,44 @@ function PlayPageClient() {
     const duration = player.duration || 0;
 
     // 如果播放时间太短（少于5秒）或者视频时长无效，不保存
+    if (currentTime < 1 || !duration) {
+      return;
+    }
+
+    // 如果不是立即保存，使用防抖机制
+    if (!immediate) {
+      // 清除之前的防抖定时器
+      if (saveProgressDebounceRef.current) {
+        clearTimeout(saveProgressDebounceRef.current);
+      }
+
+      // 设置新的防抖定时器
+      saveProgressDebounceRef.current = setTimeout(async () => {
+        await performSaveProgress();
+      }, 1000); // 1秒防抖延迟
+      return;
+    }
+
+    await performSaveProgress();
+  };
+
+  // 执行实际的保存操作
+  const performSaveProgress = async () => {
+    if (
+      !artPlayerRef.current ||
+      !currentSourceRef.current ||
+      !currentIdRef.current ||
+      !videoTitleRef.current ||
+      !detailRef.current?.source_name ||
+      isSeekingRef.current
+    ) {
+      return;
+    }
+
+    const player = artPlayerRef.current;
+    const currentTime = player.currentTime || 0;
+    const duration = player.duration || 0;
+
     if (currentTime < 1 || !duration) {
       return;
     }
@@ -972,13 +1013,13 @@ function PlayPageClient() {
   useEffect(() => {
     // 页面即将卸载时保存播放进度
     const handleBeforeUnload = () => {
-      saveCurrentPlayProgress();
+      saveCurrentPlayProgress(true); // 立即保存
     };
 
     // 页面可见性变化时保存播放进度
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        saveCurrentPlayProgress();
+        saveCurrentPlayProgress(true); // 立即保存
       }
     };
 
@@ -998,6 +1039,9 @@ function PlayPageClient() {
     return () => {
       if (saveIntervalRef.current) {
         clearInterval(saveIntervalRef.current);
+      }
+      if (saveProgressDebounceRef.current) {
+        clearTimeout(saveProgressDebounceRef.current);
       }
     };
   }, []);
@@ -1402,6 +1446,20 @@ function PlayPageClient() {
         }
       });
 
+      // 监听拖拽开始事件
+      artPlayerRef.current.on('video:seeking', () => {
+        isSeekingRef.current = true;
+        console.log('开始拖拽进度条');
+      });
+
+      // 监听拖拽结束事件
+      artPlayerRef.current.on('video:seeked', () => {
+        isSeekingRef.current = false;
+        console.log('结束拖拽进度条');
+        // 拖拽结束后立即保存一次进度
+        saveCurrentPlayProgress(true);
+      });
+
       artPlayerRef.current.on('video:timeupdate', () => {
         const now = Date.now();
         let interval = 5000;
@@ -1412,13 +1470,13 @@ function PlayPageClient() {
           interval = 20000;
         }
         if (now - lastSaveTimeRef.current > interval) {
-          saveCurrentPlayProgress();
+          saveCurrentPlayProgress(); // 使用防抖机制
           lastSaveTimeRef.current = now;
         }
       });
 
       artPlayerRef.current.on('pause', () => {
-        saveCurrentPlayProgress();
+        saveCurrentPlayProgress(true); // 暂停时立即保存
       });
 
       if (artPlayerRef.current?.video) {
