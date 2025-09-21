@@ -6,6 +6,7 @@ import 'sweetalert2/dist/sweetalert2.min.css';
 
 import { getConfig } from '@/lib/config';
 
+import { NavigationProvider } from '../components/NavigationProvider';
 import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
 
@@ -82,9 +83,11 @@ export default async function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <SiteProvider siteName={siteName} announcement={announcement}>
-            {children}
-          </SiteProvider>
+          <NavigationProvider>
+            <SiteProvider siteName={siteName} announcement={announcement}>
+              {children}
+            </SiteProvider>
+          </NavigationProvider>
         </ThemeProvider>
       </body>
     </html>

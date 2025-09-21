@@ -1,7 +1,9 @@
 import { BackButton } from './BackButton';
+import FloatingToggleButton from './FloatingToggleButton';
 import { LogoutButton } from './LogoutButton';
 import MobileBottomNav from './MobileBottomNav';
 import MobileHeader from './MobileHeader';
+import { useNavigation } from './NavigationProvider';
 import { SettingsButton } from './SettingsButton';
 import Sidebar from './Sidebar';
 import { ThemeToggle } from './ThemeToggle';
@@ -12,6 +14,8 @@ interface PageLayoutProps {
 }
 
 const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
+  const { isBottomNavVisible } = useNavigation();
+
   return (
     <div className='w-full min-h-screen'>
       {/* 移动端头部 */}
@@ -44,7 +48,9 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
           <main
             className='flex-1 md:min-h-0 mb-14 md:mb-0'
             style={{
-              paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
+              paddingBottom: isBottomNavVisible
+                ? 'calc(3.5rem + env(safe-area-inset-bottom))'
+                : 'env(safe-area-inset-bottom)',
             }}
           >
             {children}
@@ -54,8 +60,14 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
 
       {/* 移动端底部导航 */}
       <div className='md:hidden'>
-        <MobileBottomNav activePath={activePath} />
+        <MobileBottomNav
+          activePath={activePath}
+          isVisible={isBottomNavVisible}
+        />
       </div>
+
+      {/* 移动端悬浮按钮 */}
+      <FloatingToggleButton />
     </div>
   );
 };

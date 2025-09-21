@@ -92,7 +92,6 @@ export function SiteProvider({
   // 监听开关，动态加载/销毁 eruda
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const w = window as any;
 
     const loadEruda = async () => {
       try {
