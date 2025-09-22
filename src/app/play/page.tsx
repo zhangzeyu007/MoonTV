@@ -181,6 +181,11 @@ function PlayPageClient() {
   const isSeekingRef = useRef<boolean>(false);
   const saveProgressDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
+  // 播放恢复相关
+  const playbackRecoveryRef = useRef<NodeJS.Timeout | null>(null);
+  const lastPlayTimeRef = useRef<number>(0);
+  const stuckCountRef = useRef<number>(0);
+
   const artPlayerRef = useRef<any>(null);
   const artRef = useRef<HTMLDivElement | null>(null);
 
@@ -1239,6 +1244,42 @@ function PlayPageClient() {
         };
       }
 
+      // 添加全局的事件对象保护
+      const createSafeEvent = (originalEvent: any) => {
+        if (!originalEvent || typeof originalEvent !== 'object') {
+          return {
+            type: 'unknown',
+            preventDefault: () => {
+              /* noop */
+            },
+            stopPropagation: () => {
+              /* noop */
+            },
+            composedPath: () => [],
+            target: null,
+            currentTarget: null,
+            timeStamp: Date.now(),
+          };
+        }
+
+        // 确保事件对象有必要的安全方法
+        if (typeof originalEvent.preventDefault !== 'function') {
+          originalEvent.preventDefault = () => {
+            /* noop */
+          };
+        }
+        if (typeof originalEvent.stopPropagation !== 'function') {
+          originalEvent.stopPropagation = () => {
+            /* noop */
+          };
+        }
+        if (typeof originalEvent.composedPath !== 'function') {
+          originalEvent.composedPath = () => [];
+        }
+
+        return originalEvent;
+      };
+
       artPlayerRef.current = new Artplayer({
         container: artRef.current,
         url: videoUrl,
@@ -1453,30 +1494,19 @@ function PlayPageClient() {
 
       // 监听播放器事件
       artPlayerRef.current.on('ready', (e: any) => {
-        // 添加事件对象验证，防止 composedPath 错误
-        if (!e || typeof e !== 'object') {
-          console.warn('Invalid event object in ready handler');
-          return;
-        }
+        const safeEvent = createSafeEvent(e);
         setError(null);
       });
 
       artPlayerRef.current.on('video:volumechange', (e: any) => {
-        // 添加事件对象验证，防止 composedPath 错误
-        if (!e || typeof e !== 'object') {
-          console.warn('Invalid event object in volumechange handler');
-          return;
-        }
+        const safeEvent = createSafeEvent(e);
         lastVolumeRef.current = artPlayerRef.current.volume;
       });
 
       // 监听视频可播放事件，这时恢复播放进度更可靠
       artPlayerRef.current.on('video:canplay', (e: any) => {
-        // 添加事件对象验证，防止 composedPath 错误
-        if (!e || typeof e !== 'object') {
-          console.warn('Invalid event object in canplay handler');
-          return;
-        }
+        const safeEvent = createSafeEvent(e);
+
         // 若存在需要恢复的播放进度，则跳转
         if (resumeTimeRef.current && resumeTimeRef.current > 0) {
           try {
@@ -1577,42 +1607,14 @@ function PlayPageClient() {
 
       // 监听拖拽开始事件
       artPlayerRef.current.on('video:seeking', (e: any) => {
-        // 添加更严格的事件对象验证，防止 composedPath 错误
-        if (!e || typeof e !== 'object' || !e.type) {
-          console.warn('Invalid event object in seeking handler:', e);
-          return;
-        }
-
-        // 确保事件对象有必要的属性
-        try {
-          if (typeof e.preventDefault === 'function') {
-            e.preventDefault();
-          }
-        } catch (error) {
-          console.warn('Error calling preventDefault in seeking:', error);
-        }
-
+        const safeEvent = createSafeEvent(e);
         isSeekingRef.current = true;
         console.log('开始拖拽进度条');
       });
 
       // 监听拖拽结束事件
       artPlayerRef.current.on('video:seeked', (e: any) => {
-        // 添加更严格的事件对象验证，防止 composedPath 错误
-        if (!e || typeof e !== 'object' || !e.type) {
-          console.warn('Invalid event object in seeked handler:', e);
-          return;
-        }
-
-        // 确保事件对象有必要的属性
-        try {
-          if (typeof e.preventDefault === 'function') {
-            e.preventDefault();
-          }
-        } catch (error) {
-          console.warn('Error calling preventDefault in seeked:', error);
-        }
-
+        const safeEvent = createSafeEvent(e);
         isSeekingRef.current = false;
         console.log('结束拖拽进度条');
         // 拖拽结束后立即保存一次进度
@@ -1620,12 +1622,29 @@ function PlayPageClient() {
       });
 
       artPlayerRef.current.on('video:timeupdate', (e: any) => {
-        // 添加事件对象验证，防止 composedPath 错误
-        if (!e || typeof e !== 'object') {
-          console.warn('Invalid event object in timeupdate handler');
-          return;
-        }
+        const safeEvent = createSafeEvent(e);
         const now = Date.now();
+        const currentTime = artPlayerRef.current?.currentTime || 0;
+
+        // 检测播放卡死
+        if (Math.abs(currentTime - lastPlayTimeRef.current) < 0.1) {
+          stuckCountRef.current++;
+          if (stuckCountRef.current > 10) {
+            // 连续10次没有进度变化
+            console.warn('检测到播放卡死，尝试恢复...');
+            try {
+              // 尝试重新开始播放
+              artPlayerRef.current.play();
+              stuckCountRef.current = 0;
+            } catch (err) {
+              console.warn('播放恢复失败:', err);
+            }
+          }
+        } else {
+          stuckCountRef.current = 0;
+          lastPlayTimeRef.current = currentTime;
+        }
+
         let interval = 5000;
         if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'd1') {
           interval = 10000;
@@ -1640,12 +1659,18 @@ function PlayPageClient() {
       });
 
       artPlayerRef.current.on('pause', (e: any) => {
-        // 添加事件对象验证，防止 composedPath 错误
-        if (!e || typeof e !== 'object') {
-          console.warn('Invalid event object in pause handler');
-          return;
-        }
+        const safeEvent = createSafeEvent(e);
         saveCurrentPlayProgress(true); // 暂停时立即保存
+        // 重置卡死计数器
+        stuckCountRef.current = 0;
+      });
+
+      // 添加播放状态监控
+      artPlayerRef.current.on('play', (e: any) => {
+        const safeEvent = createSafeEvent(e);
+        // 重置卡死计数器
+        stuckCountRef.current = 0;
+        lastPlayTimeRef.current = artPlayerRef.current?.currentTime || 0;
       });
 
       if (artPlayerRef.current?.video) {
@@ -1677,6 +1702,9 @@ function PlayPageClient() {
       }
       if (saveProgressDebounceRef.current) {
         clearTimeout(saveProgressDebounceRef.current);
+      }
+      if (playbackRecoveryRef.current) {
+        clearTimeout(playbackRecoveryRef.current);
       }
 
       // 恢复原始的 console.error
