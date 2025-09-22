@@ -1123,6 +1123,36 @@ function PlayPageClient() {
       return;
     }
 
+    // 添加全局错误处理器，防止 composedPath 错误
+    const originalError = window.onerror;
+    const originalUnhandledRejection = window.onunhandledrejection;
+
+    window.onerror = (message, source, lineno, colno, error) => {
+      if (typeof message === 'string' && message.includes('composedPath')) {
+        console.warn('Caught composedPath error:', message);
+        return true; // 阻止错误继续传播
+      }
+      if (originalError) {
+        return originalError(message, source, lineno, colno, error);
+      }
+      return false;
+    };
+
+    window.onunhandledrejection = (event: PromiseRejectionEvent) => {
+      if (
+        event.reason &&
+        typeof event.reason === 'string' &&
+        event.reason.includes('composedPath')
+      ) {
+        console.warn('Caught composedPath promise rejection:', event.reason);
+        event.preventDefault();
+        return;
+      }
+      if (originalUnhandledRejection) {
+        return originalUnhandledRejection.call(window, event);
+      }
+    };
+
     // 确保选集索引有效
     if (
       !detail ||
@@ -1193,6 +1223,22 @@ function PlayPageClient() {
         originalConsoleError.apply(console, args);
       };
 
+      // 为 Event 原型添加安全的 composedPath 方法
+      if (typeof Event !== 'undefined' && Event.prototype) {
+        const originalComposedPath = Event.prototype.composedPath;
+        Event.prototype.composedPath = function () {
+          try {
+            if (this && typeof originalComposedPath === 'function') {
+              return originalComposedPath.call(this);
+            }
+            return [];
+          } catch (error) {
+            console.warn('Safe composedPath fallback:', error);
+            return [];
+          }
+        };
+      }
+
       artPlayerRef.current = new Artplayer({
         container: artRef.current,
         url: videoUrl,
@@ -1221,9 +1267,9 @@ function PlayPageClient() {
         theme: '#22c55e',
         lang: 'zh-cn',
         hotkey: false,
-        fastForward: true,
-        autoOrientation: true,
-        lock: true,
+        fastForward: false, // 禁用快进功能，减少事件处理
+        autoOrientation: false, // 禁用自动旋转，减少事件处理
+        lock: false, // 禁用锁定功能，减少事件处理
         moreVideoAttr: {
           crossOrigin: 'anonymous',
         },
@@ -1531,22 +1577,42 @@ function PlayPageClient() {
 
       // 监听拖拽开始事件
       artPlayerRef.current.on('video:seeking', (e: any) => {
-        // 添加事件对象验证，防止 composedPath 错误
-        if (!e || typeof e !== 'object') {
-          console.warn('Invalid event object in seeking handler');
+        // 添加更严格的事件对象验证，防止 composedPath 错误
+        if (!e || typeof e !== 'object' || !e.type) {
+          console.warn('Invalid event object in seeking handler:', e);
           return;
         }
+
+        // 确保事件对象有必要的属性
+        try {
+          if (typeof e.preventDefault === 'function') {
+            e.preventDefault();
+          }
+        } catch (error) {
+          console.warn('Error calling preventDefault in seeking:', error);
+        }
+
         isSeekingRef.current = true;
         console.log('开始拖拽进度条');
       });
 
       // 监听拖拽结束事件
       artPlayerRef.current.on('video:seeked', (e: any) => {
-        // 添加事件对象验证，防止 composedPath 错误
-        if (!e || typeof e !== 'object') {
-          console.warn('Invalid event object in seeked handler');
+        // 添加更严格的事件对象验证，防止 composedPath 错误
+        if (!e || typeof e !== 'object' || !e.type) {
+          console.warn('Invalid event object in seeked handler:', e);
           return;
         }
+
+        // 确保事件对象有必要的属性
+        try {
+          if (typeof e.preventDefault === 'function') {
+            e.preventDefault();
+          }
+        } catch (error) {
+          console.warn('Error calling preventDefault in seeked:', error);
+        }
+
         isSeekingRef.current = false;
         console.log('结束拖拽进度条');
         // 拖拽结束后立即保存一次进度
@@ -1596,14 +1662,26 @@ function PlayPageClient() {
       console.error = originalConsoleError;
       console.error('创建播放器失败:', err);
       setError('播放器初始化失败');
+    } finally {
+      // 恢复原始的错误处理器
+      window.onerror = originalError;
+      window.onunhandledrejection = originalUnhandledRejection;
     }
   }, [Artplayer, Hls, videoUrl, loading, blockAdEnabled]);
 
-  // 当组件卸载时清理定时器
+  // 当组件卸载时清理定时器和恢复原始处理器
   useEffect(() => {
     return () => {
       if (saveIntervalRef.current) {
         clearInterval(saveIntervalRef.current);
+      }
+      if (saveProgressDebounceRef.current) {
+        clearTimeout(saveProgressDebounceRef.current);
+      }
+
+      // 恢复原始的 console.error
+      if (typeof window !== 'undefined') {
+        // 这里不需要恢复，因为每次创建播放器时都会重新设置
       }
     };
   }, []);
