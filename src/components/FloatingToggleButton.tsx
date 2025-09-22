@@ -15,6 +15,8 @@ const FloatingToggleButton = () => {
   const [position, setPosition] = useState<Position>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState<Position>({ x: 0, y: 0 });
+  const [hasMoved, setHasMoved] = useState(false);
+  const [startPosition, setStartPosition] = useState<Position>({ x: 0, y: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   // 初始化位置（屏幕右下角）
@@ -75,7 +77,6 @@ const FloatingToggleButton = () => {
 
   // 鼠标事件处理
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
     if (!buttonRef.current) return;
 
     const rect = buttonRef.current.getBoundingClientRect();
@@ -83,6 +84,8 @@ const FloatingToggleButton = () => {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
     });
+    setStartPosition({ x: e.clientX, y: e.clientY });
+    setHasMoved(false);
     setIsDragging(true);
   }, []);
 
@@ -90,21 +93,31 @@ const FloatingToggleButton = () => {
     (e: MouseEvent) => {
       if (!isDragging) return;
 
+      // 检测是否移动超过阈值（5px）
+      const deltaX = Math.abs(e.clientX - startPosition.x);
+      const deltaY = Math.abs(e.clientY - startPosition.y);
+      const threshold = 5;
+
+      if (deltaX > threshold || deltaY > threshold) {
+        setHasMoved(true);
+        e.preventDefault();
+      }
+
       const newX = e.clientX - dragOffset.x;
       const newY = e.clientY - dragOffset.y;
       const constrained = constrainPosition(newX, newY);
       setPosition(constrained);
     },
-    [isDragging, dragOffset, constrainPosition]
+    [isDragging, dragOffset, constrainPosition, startPosition]
   );
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
+    setHasMoved(false);
   }, []);
 
   // 触摸事件处理
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
     if (!buttonRef.current) return;
 
     const touch = e.touches[0];
@@ -113,6 +126,8 @@ const FloatingToggleButton = () => {
       x: touch.clientX - rect.left,
       y: touch.clientY - rect.top,
     });
+    setStartPosition({ x: touch.clientX, y: touch.clientY });
+    setHasMoved(false);
     setIsDragging(true);
   }, []);
 
@@ -120,18 +135,29 @@ const FloatingToggleButton = () => {
     (e: TouchEvent) => {
       if (!isDragging) return;
 
-      e.preventDefault();
       const touch = e.touches[0];
+
+      // 检测是否移动超过阈值（5px）
+      const deltaX = Math.abs(touch.clientX - startPosition.x);
+      const deltaY = Math.abs(touch.clientY - startPosition.y);
+      const threshold = 5;
+
+      if (deltaX > threshold || deltaY > threshold) {
+        setHasMoved(true);
+        e.preventDefault();
+      }
+
       const newX = touch.clientX - dragOffset.x;
       const newY = touch.clientY - dragOffset.y;
       const constrained = constrainPosition(newX, newY);
       setPosition(constrained);
     },
-    [isDragging, dragOffset, constrainPosition]
+    [isDragging, dragOffset, constrainPosition, startPosition]
   );
 
   const handleTouchEnd = useCallback(() => {
     setIsDragging(false);
+    setHasMoved(false);
   }, []);
 
   // 添加全局事件监听器
@@ -172,20 +198,32 @@ const FloatingToggleButton = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, [position, constrainPosition]);
 
+  // 处理点击事件
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      // 只有在没有移动的情况下才触发点击
+      if (!hasMoved && !isDragging) {
+        toggleBottomNav();
+      }
+    },
+    [hasMoved, isDragging, toggleBottomNav]
+  );
+
   return (
     <button
       ref={buttonRef}
-      onClick={toggleBottomNav}
+      onClick={handleClick}
       onMouseDown={handleMouseDown}
       onTouchStart={handleTouchStart}
       className={`
-        md:hidden fixed z-[700] w-14 h-14 rounded-full shadow-lg
+        md:hidden fixed z-[9999] w-14 h-14 rounded-full shadow-lg
         bg-green-600 hover:bg-green-700 active:bg-green-800
         dark:bg-green-500 dark:hover:bg-green-600 dark:active:bg-green-700
         text-white transition-all duration-200 ease-in-out
         flex items-center justify-center
         ${isDragging ? 'scale-110 shadow-2xl' : 'hover:scale-105'}
         select-none touch-none
+        pointer-events-auto
       `}
       style={{
         left: `${position.x}px`,
