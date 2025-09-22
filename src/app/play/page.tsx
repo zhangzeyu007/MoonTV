@@ -1466,7 +1466,48 @@ function PlayPageClient() {
           console.warn('Invalid event object in error handler');
           return;
         }
-        console.error('播放器错误:', err);
+
+        // 提供更详细的错误信息
+        let errorMessage = '播放器错误: ';
+        if (err instanceof Error) {
+          errorMessage += err.message;
+        } else if (err.type) {
+          errorMessage += `事件类型: ${err.type}`;
+        } else if (err.code) {
+          errorMessage += `错误代码: ${err.code}`;
+        } else if (err.target && err.target.error) {
+          const videoError = err.target.error;
+          if (videoError) {
+            errorMessage += `视频错误 - 代码: ${videoError.code}, 消息: ${videoError.message}`;
+          }
+        } else {
+          errorMessage += '未知错误';
+        }
+
+        console.error(errorMessage, err);
+
+        // 如果是视频元素错误，提供更具体的处理
+        if (err.target && err.target.error) {
+          const videoError = err.target.error;
+          switch (videoError.code) {
+            case 1: // MEDIA_ERR_ABORTED
+              console.warn('视频播放被中止');
+              break;
+            case 2: // MEDIA_ERR_NETWORK
+              console.warn('网络错误导致视频下载失败');
+              break;
+            case 3: // MEDIA_ERR_DECODE
+              console.warn('视频解码错误');
+              break;
+            case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+              console.warn('视频格式不支持或文件不存在');
+              setError('视频格式不支持或文件不存在');
+              break;
+            default:
+              console.warn('未知视频错误');
+          }
+        }
+
         if (artPlayerRef.current.currentTime > 0) {
           return;
         }

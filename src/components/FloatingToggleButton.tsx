@@ -142,7 +142,9 @@ const FloatingToggleButton = () => {
       document.addEventListener('touchmove', handleTouchMove, {
         passive: false,
       });
-      document.addEventListener('touchend', handleTouchEnd);
+      document.addEventListener('touchend', handleTouchEnd, {
+        passive: false,
+      });
     }
 
     return () => {
