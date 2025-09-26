@@ -52,6 +52,30 @@ export function cleanHtmlTags(text: string): string {
 }
 
 /**
+ * 获取有效的 User-Agent 字符串，支持 globalThis.CUSTOM_USER_AGENT 覆盖
+ */
+export function getEffectiveUserAgent(): string {
+  try {
+    const maybeCustom = (globalThis as any)?.CUSTOM_USER_AGENT;
+    if (typeof maybeCustom === 'string' && maybeCustom.trim()) {
+      return maybeCustom;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  if (typeof navigator !== 'undefined' && navigator.userAgent) {
+    return navigator.userAgent;
+  }
+  return '';
+}
+
+/** 判断是否为 iOS UA */
+export function isIOSUserAgent(ua?: string): boolean {
+  const s = ua ?? getEffectiveUserAgent();
+  return /iPhone|iPad|iPod/i.test(s);
+}
+
+/**
  * 从m3u8地址获取视频质量等级和网络信息
  * @param m3u8Url m3u8播放列表的URL
  * @returns Promise<{quality: string, loadSpeed: string, pingTime: number}> 视频质量等级和网络信息

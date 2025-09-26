@@ -21,6 +21,7 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
+import { getEffectiveUserAgent, isIOSUserAgent } from '@/lib/utils';
 
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
@@ -44,7 +45,7 @@ function SearchPageClient() {
     number | null
   >(null);
 
-  // 调试开关（与“启用调试控制台”联动）
+  // 调试开关（与"启用调试控制台"联动）
   const debugEnabledRef = useRef(false);
   useEffect(() => {
     // 清理导航锁，避免停留状态导致后续保存被误跳过
@@ -86,8 +87,7 @@ function SearchPageClient() {
 
   // iOS 检测
   const isIOS = useMemo(() => {
-    if (typeof navigator === 'undefined') return false;
-    return /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    return isIOSUserAgent(getEffectiveUserAgent());
   }, []);
 
   // 使用ref存储最新的搜索参数，避免闭包问题
@@ -2085,7 +2085,10 @@ function SearchPageClient() {
                 <div className='text-xs text-blue-500'>
                   滚动调试: iOS={isIOS ? '是' : '否'} | 待恢复位置:{' '}
                   {pendingScrollPosition || '无'} | 当前滚动:{' '}
-                  {Math.round(window.scrollY || 0)}px
+                  {typeof window !== 'undefined'
+                    ? Math.round(window.scrollY || 0)
+                    : 0}
+                  px
                 </div>
                 <div className='text-xs text-green-500'>
                   状态: 已初始化={isInitialized ? '是' : '否'} | 导航返回=

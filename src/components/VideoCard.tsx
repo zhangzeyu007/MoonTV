@@ -15,6 +15,7 @@ import {
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
 import { processImageUrl } from '@/lib/utils';
+import { getEffectiveUserAgent, isIOSUserAgent } from '@/lib/utils';
 
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
 
@@ -222,7 +223,7 @@ export default function VideoCard({
         });
 
         // 在iOS上，先尝试强制获取一次滚动位置
-        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        const isIOS = isIOSUserAgent(getEffectiveUserAgent());
         if (isIOS) {
           // 强制触发一次滚动事件，确保滚动位置是最新的
           const scrollEvent = new Event('scroll', { bubbles: true });
