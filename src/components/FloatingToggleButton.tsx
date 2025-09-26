@@ -200,7 +200,7 @@ const FloatingToggleButton = () => {
 
   // 处理点击事件
   const handleClick = useCallback(
-    (e: React.MouseEvent) => {
+    (_e: React.MouseEvent) => {
       // 只有在没有移动的情况下才触发点击
       if (!hasMoved && !isDragging) {
         toggleBottomNav();
