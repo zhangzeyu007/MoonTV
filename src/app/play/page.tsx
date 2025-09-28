@@ -200,6 +200,68 @@ function PlayPageClient() {
   const artPlayerRef = useRef<any>(null);
   const artRef = useRef<HTMLDivElement | null>(null);
 
+  // 播放器控制（全屏 / 音量 / 倍速）
+  const speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+  const [playbackRate, setPlaybackRate] = useState<number>(1);
+  const [volume, setVolume] = useState<number>(() => {
+    if (typeof window === 'undefined') return 0.7;
+    try {
+      const v = localStorage.getItem('player_volume');
+      const parsed = v != null ? parseFloat(v) : NaN;
+      return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1
+        ? parsed
+        : 0.7;
+    } catch {
+      return 0.7;
+    }
+  });
+
+  const handleToggleFullscreen = () => {
+    const p = artPlayerRef.current;
+    if (!p) return;
+    try {
+      p.fullscreen = !p.fullscreen;
+    } catch (e) {
+      /* noop */
+    }
+  };
+
+  const handleVolumeChange = (delta: number) => {
+    const p = artPlayerRef.current;
+    if (!p) return;
+    const next = Math.max(0, Math.min(1, (p.volume || 0) + delta));
+    p.volume = next;
+    setVolume(next);
+    try {
+      localStorage.setItem('player_volume', String(next));
+    } catch {
+      /* noop */
+    }
+    const notice = (p as any).notice;
+    if (notice && typeof notice.show === 'function') {
+      notice.show(`音量: ${Math.round(next * 100)}`);
+    }
+  };
+
+  const handleSpeedCycle = () => {
+    const p = artPlayerRef.current;
+    if (!p) return;
+    const idx = speedOptions.findIndex(
+      (v) => Math.abs(v - (playbackRate || 1)) < 0.0001
+    );
+    const next = speedOptions[(idx + 1) % speedOptions.length];
+    try {
+      p.playbackRate = next;
+      setPlaybackRate(next);
+      const notice = (p as any).notice;
+      if (notice && typeof notice.show === 'function') {
+        notice.show(`倍速: ${next}x`);
+      }
+    } catch (e) {
+      /* noop */
+    }
+  };
+
   // -----------------------------------------------------------------------------
   // 工具函数（Utils）
   // -----------------------------------------------------------------------------
@@ -1286,7 +1348,7 @@ function PlayPageClient() {
         container: artRef.current as HTMLElement,
         url: videoUrl,
         poster: videoCover,
-        volume: 0.7,
+        volume: volume ?? 0.7,
         muted: false,
         autoplay: true,
         screenshot: false,
@@ -1896,6 +1958,48 @@ function PlayPageClient() {
                   ref={artRef}
                   className='bg-black w-full h-full rounded-xl overflow-hidden shadow-lg'
                 ></div>
+
+                {/* 自定义简易控制栏 */}
+                <div className='absolute bottom-0 right-0 z-[550] flex items-center gap-2 bg-black/40 backdrop-blur-sm px-2 py-1 rounded-tl-md'>
+                  <input
+                    type='range'
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={Math.round((volume || 0) * 100)}
+                    onChange={(e) => {
+                      const p = artPlayerRef.current;
+                      if (!p) return;
+                      const v = Math.max(
+                        0,
+                        Math.min(1, Number(e.target.value) / 100)
+                      );
+                      p.volume = v;
+                      setVolume(v);
+                      try {
+                        localStorage.setItem('player_volume', String(v));
+                      } catch {
+                        /* noop */
+                      }
+                    }}
+                    className='h-1.5 w-24 md:w-32 lg:w-40 cursor-pointer accent-green-500'
+                    aria-label='音量滑块'
+                  />
+                  <button
+                    onClick={handleSpeedCycle}
+                    className='text-white/90 hover:text-white text-sm px-2 py-1'
+                    aria-label='倍速'
+                  >
+                    倍速
+                  </button>
+                  <button
+                    onClick={handleToggleFullscreen}
+                    className='text-white/90 hover:text-white text-sm px-2 py-1'
+                    aria-label='全屏'
+                  >
+                    全屏
+                  </button>
+                </div>
 
                 {/* 换源加载蒙层 */}
                 {isVideoLoading && (
