@@ -1961,30 +1961,6 @@ function PlayPageClient() {
 
                 {/* 自定义简易控制栏 */}
                 <div className='absolute bottom-0 right-0 z-[550] flex items-center gap-2 bg-black/40 backdrop-blur-sm px-2 py-1 rounded-tl-md'>
-                  <input
-                    type='range'
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={Math.round((volume || 0) * 100)}
-                    onChange={(e) => {
-                      const p = artPlayerRef.current;
-                      if (!p) return;
-                      const v = Math.max(
-                        0,
-                        Math.min(1, Number(e.target.value) / 100)
-                      );
-                      p.volume = v;
-                      setVolume(v);
-                      try {
-                        localStorage.setItem('player_volume', String(v));
-                      } catch {
-                        /* noop */
-                      }
-                    }}
-                    className='h-1.5 w-24 md:w-32 lg:w-40 cursor-pointer accent-green-500'
-                    aria-label='音量滑块'
-                  />
                   <button
                     onClick={handleSpeedCycle}
                     className='text-white/90 hover:text-white text-sm px-2 py-1'
