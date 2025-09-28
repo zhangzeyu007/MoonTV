@@ -2,7 +2,12 @@
 
 'use client';
 
-import Artplayer from 'artplayer';
+let Artplayer: any = null;
+if (typeof window !== 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const mod = require('artplayer');
+  Artplayer = mod.default || mod;
+}
 import Hls from 'hls.js';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
@@ -34,6 +39,12 @@ function PlayPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // 挂载保护，避免 SSR/CSR 文本不一致
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // -----------------------------------------------------------------------------
   // 状态变量（State）
   // -----------------------------------------------------------------------------
@@ -49,7 +60,7 @@ function PlayPageClient() {
   const [favorited, setFavorited] = useState(false);
 
   // 去广告开关（从 localStorage 继承，默认 true）
-  const [blockAdEnabled, setBlockAdEnabled] = useState<boolean>(() => {
+  const [blockAdEnabled, _setBlockAdEnabled] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const v = localStorage.getItem('enable_blockad');
       if (v !== null) return v === 'true';
@@ -888,11 +899,14 @@ function PlayPageClient() {
     // 上箭头 = 音量+
     if (e.key === 'ArrowUp') {
       if (artPlayerRef.current && artPlayerRef.current.volume < 1) {
-        artPlayerRef.current.volume =
-          Math.round((artPlayerRef.current.volume + 0.1) * 10) / 10;
-        artPlayerRef.current.notice.show = `音量: ${Math.round(
-          artPlayerRef.current.volume * 100
-        )}`;
+        artPlayerRef.current.volume = Math.min(
+          1,
+          (artPlayerRef.current.volume || 0) + 0.1
+        );
+        const notice = (artPlayerRef.current as any).notice;
+        if (notice && typeof notice.show === 'function') {
+          notice.show(`音量: ${Math.round(artPlayerRef.current.volume * 100)}`);
+        }
         e.preventDefault();
       }
     }
@@ -900,11 +914,14 @@ function PlayPageClient() {
     // 下箭头 = 音量-
     if (e.key === 'ArrowDown') {
       if (artPlayerRef.current && artPlayerRef.current.volume > 0) {
-        artPlayerRef.current.volume =
-          Math.round((artPlayerRef.current.volume - 0.1) * 10) / 10;
-        artPlayerRef.current.notice.show = `音量: ${Math.round(
-          artPlayerRef.current.volume * 100
-        )}`;
+        artPlayerRef.current.volume = Math.max(
+          0,
+          (artPlayerRef.current.volume || 0) - 0.1
+        );
+        const notice = (artPlayerRef.current as any).notice;
+        if (notice && typeof notice.show === 'function') {
+          notice.show(`音量: ${Math.round(artPlayerRef.current.volume * 100)}`);
+        }
         e.preventDefault();
       }
     }
@@ -1192,8 +1209,6 @@ function PlayPageClient() {
 
     try {
       // 创建新的播放器实例
-      Artplayer.PLAYBACK_RATE = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
-      Artplayer.USE_RAF = true;
 
       // 添加全局错误处理，防止 composedPath 等错误
       console.error = (...args) => {
@@ -1261,41 +1276,25 @@ function PlayPageClient() {
         return originalEvent;
       };
 
+      if (!Artplayer) {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require('artplayer');
+        Artplayer = mod.default || mod;
+      }
+
       artPlayerRef.current = new Artplayer({
-        container: artRef.current,
+        container: artRef.current as HTMLElement,
         url: videoUrl,
         poster: videoCover,
         volume: 0.7,
-        isLive: false,
         muted: false,
         autoplay: true,
-        pip: true,
-        autoSize: false,
-        autoMini: false,
         screenshot: false,
-        setting: true,
         loop: false,
-        flip: false,
-        playbackRate: true,
-        aspectRatio: false,
-        fullscreen: true,
-        fullscreenWeb: true,
-        subtitleOffset: false,
-        miniProgressBar: false,
-        mutex: true,
-        playsInline: true,
-        autoPlayback: false,
-        airplay: true,
         theme: '#22c55e',
         lang: 'zh-cn',
         hotkey: false,
-        fastForward: false, // 禁用快进功能，减少事件处理
-        autoOrientation: false, // 禁用自动旋转，减少事件处理
-        lock: false, // 禁用锁定功能，减少事件处理
-        moreVideoAttr: {
-          crossOrigin: 'anonymous',
-        },
-        // HLS 支持配置
+        type: 'm3u8',
         customType: {
           m3u8: function (video: HTMLVideoElement, url: string) {
             if (!Hls) {
@@ -1341,8 +1340,6 @@ function PlayPageClient() {
             hls.loadSource(url);
             hls.attachMedia(video);
             video.hls = hls;
-
-            ensureVideoSource(video, url);
 
             // 错误重试计数器
             let errorRetryCount = 0;
@@ -1427,50 +1424,6 @@ function PlayPageClient() {
             });
           },
         },
-        icons: {
-          loading:
-            '<img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCIgdmlld0JveD0iMCAwIDUwIDUwIj48cGF0aCBkPSJNMjUuMjUxIDYuNDYxYy0xMC4zMTggMC0xOC42ODMgOC4zNjUtMTguNjgzIDE4LjY4M2g0LjA2OGMwLTguMDcgNi41NDUtMTQuNjE1IDE0LjYxNS0xNC42MTVWNi40NjF6IiBmaWxsPSIjMDA5Njg4Ij48YW5pbWF0ZVRyYW5zZm9ybSBhdHRyaWJ1dGVOYW1lPSJ0cmFuc2Zvcm0iIGF0dHJpYnV0ZVR5cGU9IlhNTCIgZHVyPSIxcyIgZnJvbT0iMCAyNSAyNSIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiIHRvPSIzNjAgMjUgMjUiIHR5cGU9InJvdGF0ZSIvPjwvcGF0aD48L3N2Zz4=">',
-        },
-        settings: [
-          {
-            html: '去广告',
-            icon: '<text x="50%" y="50%" font-size="20" font-weight="bold" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">AD</text>',
-            tooltip: blockAdEnabled ? '已开启' : '已关闭',
-            onClick() {
-              const newVal = !blockAdEnabled;
-              try {
-                localStorage.setItem('enable_blockad', String(newVal));
-                if (artPlayerRef.current) {
-                  resumeTimeRef.current = artPlayerRef.current.currentTime;
-                  if (
-                    artPlayerRef.current.video &&
-                    artPlayerRef.current.video.hls
-                  ) {
-                    artPlayerRef.current.video.hls.destroy();
-                  }
-                  artPlayerRef.current.destroy();
-                  artPlayerRef.current = null;
-                }
-                setBlockAdEnabled(newVal);
-              } catch (_) {
-                // ignore
-              }
-              return newVal ? '当前开启' : '当前关闭';
-            },
-          },
-        ],
-        // 控制栏配置
-        controls: [
-          {
-            position: 'left',
-            index: 13,
-            html: '<i class="art-icon flex"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" fill="currentColor"/></svg></i>',
-            tooltip: '播放下一集',
-            click: function () {
-              handleNextEpisode();
-            },
-          },
-        ],
       });
 
       // 监听播放器事件
@@ -1510,7 +1463,10 @@ function PlayPageClient() {
           ) {
             artPlayerRef.current.volume = lastVolumeRef.current;
           }
-          artPlayerRef.current.notice.show = '';
+          const notice = (artPlayerRef.current as any).notice;
+          if (notice && typeof notice.show === 'function') {
+            notice.show('');
+          }
         }, 0);
 
         // 隐藏换源加载状态
@@ -1565,7 +1521,7 @@ function PlayPageClient() {
           }
         }
 
-        if (artPlayerRef.current.currentTime > 0) {
+        if (artPlayerRef.current && artPlayerRef.current.currentTime > 0) {
           return;
         }
       });
@@ -1625,7 +1581,7 @@ function PlayPageClient() {
             console.warn('检测到播放卡死，尝试恢复...');
             try {
               // 尝试重新开始播放
-              artPlayerRef.current.play();
+              artPlayerRef.current?.play();
               stuckCountRef.current = 0;
             } catch (err) {
               console.warn('播放恢复失败:', err);
@@ -1705,7 +1661,7 @@ function PlayPageClient() {
     };
   }, []);
 
-  if (loading) {
+  if (!mounted || loading) {
     return (
       <PageLayout activePath='/play'>
         <div className='flex items-center justify-center min-h-screen bg-transparent'>
