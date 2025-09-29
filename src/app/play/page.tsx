@@ -196,6 +196,9 @@ function PlayPageClient() {
   const playbackRecoveryRef = useRef<NodeJS.Timeout | null>(null);
   const lastPlayTimeRef = useRef<number>(0);
   const stuckCountRef = useRef<number>(0);
+  // 更稳健的卡死检测：记录上次检查时间与媒体时间
+  const lastProgressCheckTsRef = useRef<number>(0);
+  const lastMediaTimeForStallRef = useRef<number>(0);
 
   const artPlayerRef = useRef<any>(null);
   const artRef = useRef<HTMLDivElement | null>(null);
@@ -1633,25 +1636,60 @@ function PlayPageClient() {
       artPlayerRef.current.on('video:timeupdate', (e: any) => {
         createSafeEvent(e);
         const now = Date.now();
-        const currentTime = artPlayerRef.current?.currentTime || 0;
+        const player = artPlayerRef.current;
+        const currentTime = player?.currentTime || 0;
 
-        // 检测播放卡死
-        if (Math.abs(currentTime - lastPlayTimeRef.current) < 0.1) {
-          stuckCountRef.current++;
-          if (stuckCountRef.current > 10) {
-            // 连续10次没有进度变化
-            console.warn('检测到播放卡死，尝试恢复...');
-            try {
-              // 尝试重新开始播放
-              artPlayerRef.current?.play();
+        // 更稳健的卡死检测逻辑：
+        // 仅在未暂停、页面可见且视频已具备足够数据时进行判断
+        const isPaused = !!player?.paused;
+        const isPageVisible =
+          typeof document !== 'undefined'
+            ? document.visibilityState === 'visible'
+            : true;
+        const readyState = (player?.video?.readyState as number) ?? 0; // HAVE_CURRENT_DATA=2, HAVE_FUTURE_DATA=3
+
+        if (!isPaused && isPageVisible && readyState >= 2) {
+          // 每隔 >= 1500ms 才进行一次卡死评估，避免高频误判
+          const lastCheckTs = lastProgressCheckTsRef.current || 0;
+          if (now - lastCheckTs >= 1500) {
+            const lastMediaT = lastMediaTimeForStallRef.current || 0;
+            const progressed = currentTime - lastMediaT;
+
+            if (progressed < 0.2) {
+              // 近 1.5s 内几乎没有前进，记录一次疑似卡死
+              stuckCountRef.current += 1;
+              if (stuckCountRef.current >= 3) {
+                // 连续三次评估（约≥4.5s）无进展，进行温和恢复
+                console.warn('检测到播放疑似卡死，进行轻微跳帧恢复...');
+                try {
+                  // 轻微跳过极小间隔，触发解码器推进
+                  const nudge = Math.min(
+                    (player?.duration || 0) - currentTime,
+                    0.05
+                  );
+                  if (nudge > 0 && Number.isFinite(nudge)) {
+                    player.currentTime = currentTime + nudge;
+                  }
+                  // 继续播放
+                  player?.play?.();
+                } catch (err) {
+                  console.warn('播放恢复失败:', err);
+                } finally {
+                  stuckCountRef.current = 0;
+                }
+              }
+            } else {
+              // 有正常推进，重置计数
               stuckCountRef.current = 0;
-            } catch (err) {
-              console.warn('播放恢复失败:', err);
             }
+            lastMediaTimeForStallRef.current = currentTime;
+            lastProgressCheckTsRef.current = now;
           }
         } else {
+          // 暂停或不可见状态下不进行卡死统计
           stuckCountRef.current = 0;
-          lastPlayTimeRef.current = currentTime;
+          lastMediaTimeForStallRef.current = currentTime;
+          lastProgressCheckTsRef.current = now;
         }
 
         let interval = 5000;
