@@ -191,6 +191,8 @@ function PlayPageClient() {
   const lastSaveTimeRef = useRef<number>(0);
   const isSeekingRef = useRef<boolean>(false);
   const saveProgressDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  // 拖拽后的短冷却时间戳（毫秒），在此之前跳过 heavy 逻辑，避免卡顿
+  const seekCooldownUntilRef = useRef<number>(0);
 
   // 播放恢复相关
   const playbackRecoveryRef = useRef<NodeJS.Timeout | null>(null);
@@ -1612,7 +1614,7 @@ function PlayPageClient() {
         try {
           createSafeEvent(e);
           isSeekingRef.current = true;
-          console.log('开始拖拽进度条');
+          // 降低日志噪声与主线程压力
         } catch (err) {
           console.error('处理 seeking 事件时出错:', err);
         }
@@ -1623,7 +1625,8 @@ function PlayPageClient() {
         try {
           createSafeEvent(e);
           isSeekingRef.current = false;
-          console.log('结束拖拽进度条');
+          // 设置拖拽后的短冷却窗口，期间跳过卡死检测与频繁保存
+          seekCooldownUntilRef.current = Date.now() + 800; // 0.8s 冷却
           // 拖拽结束后延迟保存一次进度，避免与其他事件冲突
           setTimeout(() => {
             saveCurrentPlayProgress(true);
@@ -1636,6 +1639,10 @@ function PlayPageClient() {
       artPlayerRef.current.on('video:timeupdate', (e: any) => {
         createSafeEvent(e);
         const now = Date.now();
+        // 拖拽后冷却期：跳过卡死检测与频繁保存，提升进度条流畅性
+        if (now < seekCooldownUntilRef.current || isSeekingRef.current) {
+          return;
+        }
         const player = artPlayerRef.current;
         const currentTime = player?.currentTime || 0;
 
