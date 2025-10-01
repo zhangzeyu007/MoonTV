@@ -530,31 +530,58 @@ function PlayPageClient() {
   }
 
   class CustomHlsJsLoader extends Hls.DefaultConfig.loader {
+    private originalLoad: any;
+
     constructor(config: any) {
       super(config);
+      // 保存原始的load方法
+      this.originalLoad = super.load.bind(this);
+
       const load = this.load.bind(this);
       this.load = function (context: any, config: any, callbacks: any) {
+        // 确保 callbacks 对象存在且包含必要的方法
+        if (!callbacks || typeof callbacks !== 'object') {
+          return load(context, config, callbacks);
+        }
+
         // 拦截manifest和level请求
         if (
           (context as any).type === 'manifest' ||
           (context as any).type === 'level'
         ) {
           const onSuccess = callbacks.onSuccess;
-          callbacks.onSuccess = function (
-            response: any,
-            stats: any,
-            context: any
-          ) {
-            // 如果是m3u8文件，处理内容以移除广告分段
-            if (response.data && typeof response.data === 'string') {
-              // 过滤掉广告段 - 实现更精确的广告过滤逻辑
-              response.data = filterAdsFromM3U8(response.data);
-            }
-            return onSuccess(response, stats, context, null);
-          };
+          if (typeof onSuccess === 'function') {
+            callbacks.onSuccess = function (
+              response: any,
+              stats: any,
+              context: any
+            ) {
+              try {
+                // 如果是m3u8文件，处理内容以移除广告分段
+                if (
+                  response &&
+                  response.data &&
+                  typeof response.data === 'string'
+                ) {
+                  // 过滤掉广告段 - 实现更精确的广告过滤逻辑
+                  response.data = filterAdsFromM3U8(response.data);
+                }
+                return onSuccess(response, stats, context, null);
+              } catch (error) {
+                console.warn('CustomHlsJsLoader处理响应时出错:', error);
+                return onSuccess(response, stats, context, null);
+              }
+            };
+          }
         }
         // 执行原始load方法
-        load(context, config, callbacks);
+        try {
+          return load(context, config, callbacks);
+        } catch (error) {
+          console.warn('CustomHlsJsLoader执行load方法时出错:', error);
+          // 如果自定义loader出错，回退到默认行为
+          return this.originalLoad(context, config, callbacks);
+        }
       };
     }
   }
@@ -1467,6 +1494,52 @@ function PlayPageClient() {
             hls.loadSource(url);
             hls.attachMedia(video);
             video.hls = hls;
+
+            // 修复可能的日志系统问题 - 通过重写内部方法
+            try {
+              if (hls && typeof hls === 'object') {
+                // 使用类型断言来避免 TypeScript 错误
+                const hlsAny = hls as any;
+
+                // 确保 HLS 实例有正确的日志方法
+                if (!hlsAny.log) {
+                  hlsAny.log = () => {
+                    /* 空日志函数 */
+                  };
+                }
+
+                // 如果存在 logger 对象，确保其方法可用
+                if (hlsAny.logger) {
+                  hlsAny.logger.log =
+                    hlsAny.logger.log ||
+                    (() => {
+                      /* 空日志函数 */
+                    });
+                  hlsAny.logger.warn =
+                    hlsAny.logger.warn ||
+                    (() => {
+                      /* 空警告函数 */
+                    });
+                  hlsAny.logger.error =
+                    hlsAny.logger.error ||
+                    (() => {
+                      /* 空错误函数 */
+                    });
+                  hlsAny.logger.info =
+                    hlsAny.logger.info ||
+                    (() => {
+                      /* 空信息函数 */
+                    });
+                  hlsAny.logger.debug =
+                    hlsAny.logger.debug ||
+                    (() => {
+                      /* 空调试函数 */
+                    });
+                }
+              }
+            } catch (error) {
+              console.warn('修复HLS日志系统时出错:', error);
+            }
 
             // 错误重试计数器
             let errorRetryCount = 0;
