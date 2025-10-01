@@ -231,7 +231,7 @@ function PlayPageClient() {
     }
   };
 
-  const handleVolumeChange = (delta: number) => {
+  const _handleVolumeChange = (delta: number) => {
     const p = artPlayerRef.current;
     if (!p) return;
     const next = Math.max(0, Math.min(1, (p.volume || 0) + delta));
@@ -1307,6 +1307,50 @@ function PlayPageClient() {
         };
       }
 
+      // 添加全局事件对象安全检查
+      const originalAddEventListener = EventTarget.prototype.addEventListener;
+      EventTarget.prototype.addEventListener = function (
+        this: EventTarget,
+        type: string,
+        listener: EventListenerOrEventListenerObject | null,
+        options?: boolean | AddEventListenerOptions
+      ) {
+        if (typeof listener === 'function') {
+          const wrappedListener = function (
+            this: EventTarget,
+            event: Event | undefined
+          ) {
+            try {
+              // 确保事件对象存在且有效
+              if (!event || typeof event !== 'object') {
+                console.warn(
+                  'Invalid event object detected, skipping listener'
+                );
+                return;
+              }
+              return (listener as EventListener).call(this, event);
+            } catch (error) {
+              if (
+                error instanceof Error &&
+                error.message &&
+                error.message.includes('composedPath')
+              ) {
+                console.warn('ComposedPath error caught and handled:', error);
+                return;
+              }
+              throw error;
+            }
+          };
+          return originalAddEventListener.call(
+            this,
+            type,
+            wrappedListener,
+            options
+          );
+        }
+        return originalAddEventListener.call(this, type, listener, options);
+      };
+
       // 添加全局的事件对象保护
       const createSafeEvent = (originalEvent: any) => {
         if (!originalEvent || typeof originalEvent !== 'object') {
@@ -1336,8 +1380,24 @@ function PlayPageClient() {
             /* noop */
           };
         }
+
+        // 特别保护 composedPath 方法
         if (typeof originalEvent.composedPath !== 'function') {
           originalEvent.composedPath = () => [];
+        } else {
+          // 如果 composedPath 存在，包装它以提供额外保护
+          const originalComposedPath = originalEvent.composedPath;
+          originalEvent.composedPath = function () {
+            try {
+              if (this && typeof originalComposedPath === 'function') {
+                return originalComposedPath.call(this);
+              }
+              return [];
+            } catch (error) {
+              console.warn('ComposedPath error in event handler:', error);
+              return [];
+            }
+          };
         }
 
         return originalEvent;
@@ -1495,8 +1555,13 @@ function PlayPageClient() {
 
       // 监听播放器事件
       artPlayerRef.current.on('ready', (e: any) => {
-        createSafeEvent(e);
-        setError(null);
+        try {
+          createSafeEvent(e);
+          setError(null);
+        } catch (error) {
+          console.warn('Error in ready event handler:', error);
+          setError(null);
+        }
       });
 
       artPlayerRef.current.on('video:volumechange', (e: any) => {
@@ -1617,6 +1682,8 @@ function PlayPageClient() {
           // 降低日志噪声与主线程压力
         } catch (err) {
           console.error('处理 seeking 事件时出错:', err);
+          // 即使出错也要设置状态，确保播放器正常工作
+          isSeekingRef.current = true;
         }
       });
 
@@ -1633,11 +1700,18 @@ function PlayPageClient() {
           }, 100);
         } catch (err) {
           console.error('处理 seeked 事件时出错:', err);
+          // 即使出错也要设置状态，确保播放器正常工作
+          isSeekingRef.current = false;
+          seekCooldownUntilRef.current = Date.now() + 800;
         }
       });
 
       artPlayerRef.current.on('video:timeupdate', (e: any) => {
-        createSafeEvent(e);
+        try {
+          createSafeEvent(e);
+        } catch (err) {
+          console.warn('Error in timeupdate event handler:', err);
+        }
         const now = Date.now();
         // 拖拽后冷却期：跳过卡死检测与频繁保存，提升进度条流畅性
         if (now < seekCooldownUntilRef.current || isSeekingRef.current) {

@@ -499,18 +499,6 @@ function SearchPageClient() {
         return;
       }
 
-      // 添加调试日志
-      // console.log('[滚动位置保存]', {
-      //   isIOS,
-      //   scrollMethod,
-      //   currentScroll,
-      //   windowScrollY: typeof window.scrollY === 'number' ? window.scrollY : 'undefined',
-      //   documentScrollTop: document.documentElement?.scrollTop || 0,
-      //   bodyScrollTop: document.body?.scrollTop || 0,
-      //   scrollingElementScrollTop: getScrollingElement()?.scrollTop || 0,
-      //   timestamp: new Date().toISOString()
-      // });
-
       parsedState.scrollPosition = currentScroll;
       parsedState.timestamp = Date.now();
       localStorage.setItem('searchPageState', JSON.stringify(parsedState));
