@@ -22,6 +22,7 @@ const FloatingToggleButton = () => {
   const [startPosition, setStartPosition] = useState<Position>({ x: 0, y: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [isIOS, setIsIOS] = useState(false);
+  const [activeTouchId, setActiveTouchId] = useState<number | null>(null);
 
   useEffect(() => {
     try {
@@ -109,6 +110,13 @@ const FloatingToggleButton = () => {
     (e: MouseEvent) => {
       if (!isDragging) return;
 
+      // 若未按下主键（松开），结束拖拽，避免外部移动影响按钮
+      if (e.buttons === 0) {
+        setIsDragging(false);
+        setHasMoved(false);
+        return;
+      }
+
       // 检测是否移动超过阈值（5px）
       const deltaX = Math.abs(e.clientX - startPosition.x);
       const deltaY = Math.abs(e.clientY - startPosition.y);
@@ -163,7 +171,20 @@ const FloatingToggleButton = () => {
 
   const handleTouchMove = useCallback(
     (e: TouchEvent) => {
-      const touch = e.touches[0];
+      // 仅跟踪在按钮上开始的那根触摸
+      let touch: Touch | undefined;
+      if (activeTouchId !== null) {
+        for (let i = 0; i < e.touches.length; i++) {
+          const t = e.touches.item(i);
+          if (t && t.identifier === activeTouchId) {
+            touch = t;
+            break;
+          }
+        }
+      } else {
+        touch = e.touches[0];
+      }
+      if (!touch) return;
 
       const deltaX = Math.abs(touch.clientX - startPosition.x);
       const deltaY = Math.abs(touch.clientY - startPosition.y);
@@ -202,6 +223,7 @@ const FloatingToggleButton = () => {
       dragOffset,
       constrainPosition,
       startPosition,
+      activeTouchId,
     ]
   );
 
@@ -209,6 +231,7 @@ const FloatingToggleButton = () => {
     setIsDragging(false);
     setHasMoved(false);
     setIsPendingDrag(false);
+    setActiveTouchId(null);
   }, []);
 
   // 处理触摸被取消的情况（如系统手势、滚动中断等）
@@ -216,13 +239,19 @@ const FloatingToggleButton = () => {
     setIsDragging(false);
     setHasMoved(false);
     setIsPendingDrag(false);
+    setActiveTouchId(null);
   }, []);
 
   // 添加全局事件监听器
   useEffect(() => {
+    // 鼠标拖拽仅在 isDragging 时需要监听
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    // 触摸在 iOS 的待定阶段也需要监听，用于阈值判断
+    if (isDragging || isPendingDrag) {
       document.addEventListener('touchmove', handleTouchMove, {
         passive: false,
       });
@@ -243,6 +272,7 @@ const FloatingToggleButton = () => {
     };
   }, [
     isDragging,
+    isPendingDrag,
     handleMouseMove,
     handleMouseUp,
     handleTouchMove,
