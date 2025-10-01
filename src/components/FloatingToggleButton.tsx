@@ -146,6 +146,12 @@ const FloatingToggleButton = () => {
       if (!buttonRef.current) return;
 
       const touch = e.touches[0];
+      // 记录开始于按钮之上的触点，仅跟踪这一根手指
+      try {
+        setActiveTouchId(touch?.identifier ?? null);
+      } catch (_) {
+        setActiveTouchId(null);
+      }
       const rect = buttonRef.current.getBoundingClientRect();
       setDragOffset({
         x: touch.clientX - rect.left,
