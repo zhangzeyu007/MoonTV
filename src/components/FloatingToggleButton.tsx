@@ -3,6 +3,8 @@
 import { Menu, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { isIOSUserAgent } from '@/lib/utils';
+
 import { useNavigation } from './NavigationProvider';
 
 interface Position {
@@ -14,10 +16,20 @@ const FloatingToggleButton = () => {
   const { isBottomNavVisible, toggleBottomNav } = useNavigation();
   const [position, setPosition] = useState<Position>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
+  const [isPendingDrag, setIsPendingDrag] = useState(false);
   const [dragOffset, setDragOffset] = useState<Position>({ x: 0, y: 0 });
   const [hasMoved, setHasMoved] = useState(false);
   const [startPosition, setStartPosition] = useState<Position>({ x: 0, y: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const [isIOS, setIsIOS] = useState(false);
+
+  useEffect(() => {
+    try {
+      setIsIOS(isIOSUserAgent());
+    } catch {
+      setIsIOS(false);
+    }
+  }, []);
 
   // 初始化位置（屏幕右下角）
   useEffect(() => {
@@ -79,6 +91,10 @@ const FloatingToggleButton = () => {
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!buttonRef.current) return;
 
+    // 防止在开始拖拽时触发页面其他交互
+    e.preventDefault();
+    e.stopPropagation();
+
     const rect = buttonRef.current.getBoundingClientRect();
     setDragOffset({
       x: e.clientX - rect.left,
@@ -117,34 +133,61 @@ const FloatingToggleButton = () => {
   }, []);
 
   // 触摸事件处理
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (!buttonRef.current) return;
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (!buttonRef.current) return;
 
-    const touch = e.touches[0];
-    const rect = buttonRef.current.getBoundingClientRect();
-    setDragOffset({
-      x: touch.clientX - rect.left,
-      y: touch.clientY - rect.top,
-    });
-    setStartPosition({ x: touch.clientX, y: touch.clientY });
-    setHasMoved(false);
-    setIsDragging(true);
-  }, []);
+      const touch = e.touches[0];
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDragOffset({
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top,
+      });
+      setStartPosition({ x: touch.clientX, y: touch.clientY });
+      setHasMoved(false);
+
+      if (isIOS) {
+        // iOS: 延迟到移动超阈值后再进入拖拽，避免阻断滚动
+        setIsPendingDrag(true);
+        // 不在此处 preventDefault，允许自然滚动/点击
+        e.stopPropagation();
+      } else {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+        setIsPendingDrag(false);
+      }
+    },
+    [isIOS]
+  );
 
   const handleTouchMove = useCallback(
     (e: TouchEvent) => {
-      if (!isDragging) return;
-
       const touch = e.touches[0];
 
-      // 检测是否移动超过阈值（5px）
       const deltaX = Math.abs(touch.clientX - startPosition.x);
       const deltaY = Math.abs(touch.clientY - startPosition.y);
       const threshold = 5;
 
-      if (deltaX > threshold || deltaY > threshold) {
-        setHasMoved(true);
+      if (isIOS) {
+        if (!isDragging) {
+          // 尚未进入拖拽，判断是否超过阈值
+          if (isPendingDrag && (deltaX > threshold || deltaY > threshold)) {
+            setIsDragging(true);
+            setHasMoved(true);
+          } else {
+            // 未超过阈值，不拦截，允许原生滚动
+            return;
+          }
+        }
+        // iOS 已进入拖拽后再阻止默认行为
         e.preventDefault();
+      } else {
+        if (!isDragging) return;
+        if (deltaX > threshold || deltaY > threshold) {
+          setHasMoved(true);
+          e.preventDefault();
+        }
       }
 
       const newX = touch.clientX - dragOffset.x;
@@ -152,12 +195,27 @@ const FloatingToggleButton = () => {
       const constrained = constrainPosition(newX, newY);
       setPosition(constrained);
     },
-    [isDragging, dragOffset, constrainPosition, startPosition]
+    [
+      isIOS,
+      isDragging,
+      isPendingDrag,
+      dragOffset,
+      constrainPosition,
+      startPosition,
+    ]
   );
 
   const handleTouchEnd = useCallback(() => {
     setIsDragging(false);
     setHasMoved(false);
+    setIsPendingDrag(false);
+  }, []);
+
+  // 处理触摸被取消的情况（如系统手势、滚动中断等）
+  const handleTouchCancel = useCallback(() => {
+    setIsDragging(false);
+    setHasMoved(false);
+    setIsPendingDrag(false);
   }, []);
 
   // 添加全局事件监听器
@@ -171,6 +229,9 @@ const FloatingToggleButton = () => {
       document.addEventListener('touchend', handleTouchEnd, {
         passive: false,
       });
+      document.addEventListener('touchcancel', handleTouchCancel, {
+        passive: false,
+      });
     }
 
     return () => {
@@ -178,6 +239,7 @@ const FloatingToggleButton = () => {
       document.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('touchend', handleTouchEnd);
+      document.removeEventListener('touchcancel', handleTouchCancel);
     };
   }, [
     isDragging,
@@ -185,7 +247,21 @@ const FloatingToggleButton = () => {
     handleMouseUp,
     handleTouchMove,
     handleTouchEnd,
+    handleTouchCancel,
   ]);
+
+  // 页面可见性变化时，确保拖拽状态被正确重置，避免返回页面后仍处于拖拽中
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        setIsDragging(false);
+        setHasMoved(false);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () =>
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   // 处理窗口大小变化
   useEffect(() => {
