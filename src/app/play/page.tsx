@@ -1244,9 +1244,20 @@ function PlayPageClient() {
     const originalUnhandledRejection = window.onunhandledrejection;
 
     window.onerror = (message, source, lineno, colno, error) => {
-      if (typeof message === 'string' && message.includes('composedPath')) {
-        console.warn('Caught composedPath error:', message);
-        return true; // 阻止错误继续传播
+      if (typeof message === 'string') {
+        // 过滤浏览器/第三方在 seeking 阶段触发的 this.log 空引用报错，避免影响拖动与路由
+        if (
+          message.includes('this.log is not a function') ||
+          message.includes('this.log is null') ||
+          message.includes('Media seeking to')
+        ) {
+          console.warn('Ignored seeking log error:', message);
+          return true;
+        }
+        if (message.includes('composedPath')) {
+          console.warn('Caught composedPath error:', message);
+          return true;
+        }
       }
       if (originalError) {
         return originalError(message, source, lineno, colno, error);
@@ -1255,14 +1266,22 @@ function PlayPageClient() {
     };
 
     window.onunhandledrejection = (event: PromiseRejectionEvent) => {
-      if (
-        event.reason &&
-        typeof event.reason === 'string' &&
-        event.reason.includes('composedPath')
-      ) {
-        console.warn('Caught composedPath promise rejection:', event.reason);
-        event.preventDefault();
-        return;
+      const reason = (event as any)?.reason;
+      if (typeof reason === 'string') {
+        if (
+          reason.includes('this.log is not a function') ||
+          reason.includes('this.log is null') ||
+          reason.includes('Media seeking to')
+        ) {
+          console.warn('Ignored seeking log promise rejection:', reason);
+          event.preventDefault();
+          return;
+        }
+        if (reason.includes('composedPath')) {
+          console.warn('Caught composedPath promise rejection:', reason);
+          event.preventDefault();
+          return;
+        }
       }
       if (originalUnhandledRejection) {
         return originalUnhandledRejection.call(window, event);
