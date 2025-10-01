@@ -100,7 +100,9 @@ const FloatingToggleButton = () => {
 
       if (deltaX > threshold || deltaY > threshold) {
         setHasMoved(true);
-        e.preventDefault();
+        if (e.cancelable) {
+          e.preventDefault();
+        }
       }
 
       const newX = e.clientX - dragOffset.x;
@@ -144,7 +146,9 @@ const FloatingToggleButton = () => {
 
       if (deltaX > threshold || deltaY > threshold) {
         setHasMoved(true);
-        e.preventDefault();
+        if (e.cancelable) {
+          e.preventDefault();
+        }
       }
 
       const newX = touch.clientX - dragOffset.x;
@@ -171,8 +175,45 @@ const FloatingToggleButton = () => {
       document.addEventListener('touchend', handleTouchEnd, {
         passive: false,
       });
+      // 当页面组件对 touchend 事件做了阻止或中断（如 stopPropagation/被浏览器取消）时，确保能收尾拖拽状态
+      document.addEventListener('touchcancel', handleTouchEnd, {
+        passive: false,
+      });
+      document.addEventListener(
+        'pointerup',
+        handleMouseUp as unknown as EventListener
+      );
+      document.addEventListener(
+        'pointercancel',
+        handleMouseUp as unknown as EventListener
+      );
+      const handleVisibilityChange = () => {
+        if (document.hidden) {
+          handleMouseUp();
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      // 清理函数中也要移除这些监听
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleTouchEnd);
+        document.removeEventListener('touchcancel', handleTouchEnd);
+        document.removeEventListener(
+          'pointerup',
+          handleMouseUp as unknown as EventListener
+        );
+        document.removeEventListener(
+          'pointercancel',
+          handleMouseUp as unknown as EventListener
+        );
+        document.removeEventListener(
+          'visibilitychange',
+          handleVisibilityChange
+        );
+      };
     }
-
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
@@ -225,7 +266,7 @@ const FloatingToggleButton = () => {
         text-white transition-all duration-200 ease-in-out
         flex items-center justify-center
         ${isDragging ? 'scale-110 shadow-2xl' : 'hover:scale-105'}
-        select-none touch-manipulation
+        select-none touch-none
         pointer-events-auto
       `}
       style={{
