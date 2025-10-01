@@ -248,22 +248,36 @@ const FloatingToggleButton = () => {
     setActiveTouchId(null);
   }, []);
 
-  // 添加全局事件监听器
+  // 添加全局事件监听器（分阶段、分被动性以降低对播放器的影响）
   useEffect(() => {
-    // 鼠标拖拽仅在 isDragging 时需要监听
+    // 鼠标：仅在拖拽中监听
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
     }
 
-    // 触摸在 iOS 的待定阶段也需要监听，用于阈值判断
-    if (isDragging || isPendingDrag) {
+    // 触摸分两种阶段：
+    // - 待定阶段（如 iOS 上阈值判断）：使用 passive: true，不拦截默认行为，避免影响滚动/播放器
+    // - 实际拖拽阶段：使用 passive: false，允许在需要时 preventDefault 以平滑拖拽
+
+    // 待定阶段监听（仅当待定但未进入拖拽时）
+    const attachPendingTouchListeners = isPendingDrag && !isDragging;
+    if (attachPendingTouchListeners) {
+      document.addEventListener('touchmove', handleTouchMove, {
+        passive: true,
+      });
+      document.addEventListener('touchend', handleTouchEnd, { passive: true });
+      document.addEventListener('touchcancel', handleTouchCancel, {
+        passive: true,
+      });
+    }
+
+    // 实际拖拽阶段监听
+    if (isDragging) {
       document.addEventListener('touchmove', handleTouchMove, {
         passive: false,
       });
-      document.addEventListener('touchend', handleTouchEnd, {
-        passive: false,
-      });
+      document.addEventListener('touchend', handleTouchEnd, { passive: false });
       document.addEventListener('touchcancel', handleTouchCancel, {
         passive: false,
       });
