@@ -214,7 +214,10 @@ const FloatingToggleButton = () => {
       ref={buttonRef}
       onClick={handleClick}
       onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
       onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
       className={`
         md:hidden fixed z-[9999] w-14 h-14 rounded-full shadow-lg
         bg-green-600 hover:bg-green-700 active:bg-green-800
@@ -222,7 +225,7 @@ const FloatingToggleButton = () => {
         text-white transition-all duration-200 ease-in-out
         flex items-center justify-center
         ${isDragging ? 'scale-110 shadow-2xl' : 'hover:scale-105'}
-        select-none touch-none
+        select-none touch-manipulation
         pointer-events-auto
       `}
       style={{
