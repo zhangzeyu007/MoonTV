@@ -1,7 +1,9 @@
 'use client';
 
 import { Menu, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { getEffectiveUserAgent, isIOSUserAgent } from '@/lib/utils';
 
 import { useNavigation } from './NavigationProvider';
 
@@ -18,6 +20,7 @@ const FloatingToggleButton = () => {
   const [hasMoved, setHasMoved] = useState(false);
   const [startPosition, setStartPosition] = useState<Position>({ x: 0, y: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const isIOS = useMemo(() => isIOSUserAgent(getEffectiveUserAgent()), []);
 
   // 初始化位置（屏幕右下角）
   useEffect(() => {
@@ -75,34 +78,37 @@ const FloatingToggleButton = () => {
     return { x: constrainedX, y: constrainedY };
   }, []);
 
-  // 鼠标事件处理
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!buttonRef.current) return;
+  // 使用 Pointer Events 统一处理拖拽，避免全局监听导致的误触与滚动阻塞
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (!buttonRef.current) return;
+      // iOS 上禁用 pointer capture，避免在复杂渲染下丢失 pointerup 导致状态悬挂
+      if (!isIOS) {
+        try {
+          buttonRef.current.setPointerCapture(e.pointerId);
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDragOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      setStartPosition({ x: e.clientX, y: e.clientY });
+      setHasMoved(false);
+      setIsDragging(true);
+    },
+    [isIOS]
+  );
 
-    const rect = buttonRef.current.getBoundingClientRect();
-    setDragOffset({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    });
-    setStartPosition({ x: e.clientX, y: e.clientY });
-    setHasMoved(false);
-    setIsDragging(true);
-  }, []);
-
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
       if (!isDragging) return;
 
-      // 检测是否移动超过阈值（5px）
       const deltaX = Math.abs(e.clientX - startPosition.x);
       const deltaY = Math.abs(e.clientY - startPosition.y);
       const threshold = 5;
-
       if (deltaX > threshold || deltaY > threshold) {
         setHasMoved(true);
-        if (e.cancelable) {
-          e.preventDefault();
-        }
+        if (e.cancelable) e.preventDefault();
       }
 
       const newX = e.clientX - dragOffset.x;
@@ -113,120 +119,52 @@ const FloatingToggleButton = () => {
     [isDragging, dragOffset, constrainPosition, startPosition]
   );
 
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-    setHasMoved(false);
-  }, []);
-
-  // 触摸事件处理
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (!buttonRef.current) return;
-
-    const touch = e.touches[0];
-    const rect = buttonRef.current.getBoundingClientRect();
-    setDragOffset({
-      x: touch.clientX - rect.left,
-      y: touch.clientY - rect.top,
-    });
-    setStartPosition({ x: touch.clientX, y: touch.clientY });
-    setHasMoved(false);
-    setIsDragging(true);
-  }, []);
-
-  const handleTouchMove = useCallback(
-    (e: TouchEvent) => {
-      if (!isDragging) return;
-
-      const touch = e.touches[0];
-
-      // 检测是否移动超过阈值（5px）
-      const deltaX = Math.abs(touch.clientX - startPosition.x);
-      const deltaY = Math.abs(touch.clientY - startPosition.y);
-      const threshold = 5;
-
-      if (deltaX > threshold || deltaY > threshold) {
-        setHasMoved(true);
-        if (e.cancelable) {
-          e.preventDefault();
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (!isIOS) {
+        if (
+          buttonRef.current &&
+          (buttonRef.current as any).hasPointerCapture?.(e.pointerId)
+        ) {
+          try {
+            buttonRef.current.releasePointerCapture(e.pointerId);
+          } catch (_) {
+            /* ignore */
+          }
         }
       }
-
-      const newX = touch.clientX - dragOffset.x;
-      const newY = touch.clientY - dragOffset.y;
-      const constrained = constrainPosition(newX, newY);
-      setPosition(constrained);
+      setIsDragging(false);
+      setHasMoved(false);
     },
-    [isDragging, dragOffset, constrainPosition, startPosition]
+    [isIOS]
   );
 
-  const handleTouchEnd = useCallback(() => {
-    setIsDragging(false);
-    setHasMoved(false);
-  }, []);
-
-  // 添加全局事件监听器
+  // 窗口级兜底清理：防止在 iOS 或复杂渲染场景下丢失 pointerup/cancel 导致拖拽状态悬挂
   useEffect(() => {
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.addEventListener('touchmove', handleTouchMove, {
-        passive: false,
-      });
-      document.addEventListener('touchend', handleTouchEnd, {
-        passive: false,
-      });
-      // 当页面组件对 touchend 事件做了阻止或中断（如 stopPropagation/被浏览器取消）时，确保能收尾拖拽状态
-      document.addEventListener('touchcancel', handleTouchEnd, {
-        passive: false,
-      });
-      document.addEventListener(
-        'pointerup',
-        handleMouseUp as unknown as EventListener
-      );
-      document.addEventListener(
-        'pointercancel',
-        handleMouseUp as unknown as EventListener
-      );
-      const handleVisibilityChange = () => {
-        if (document.hidden) {
-          handleMouseUp();
-        }
-      };
-      document.addEventListener('visibilitychange', handleVisibilityChange);
-      // 清理函数中也要移除这些监听
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-        document.removeEventListener('touchmove', handleTouchMove);
-        document.removeEventListener('touchend', handleTouchEnd);
-        document.removeEventListener('touchcancel', handleTouchEnd);
-        document.removeEventListener(
-          'pointerup',
-          handleMouseUp as unknown as EventListener
-        );
-        document.removeEventListener(
-          'pointercancel',
-          handleMouseUp as unknown as EventListener
-        );
-        document.removeEventListener(
-          'visibilitychange',
-          handleVisibilityChange
-        );
-      };
-    }
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('touchmove', handleTouchMove);
-      document.removeEventListener('touchend', handleTouchEnd);
+    const endDragSafely = () => {
+      setIsDragging(false);
+      setHasMoved(false);
     };
-  }, [
-    isDragging,
-    handleMouseMove,
-    handleMouseUp,
-    handleTouchMove,
-    handleTouchEnd,
-  ]);
+    const onPointerUp = () => endDragSafely();
+    const onPointerCancel = () => endDragSafely();
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') endDragSafely();
+    };
+    const onBlur = () => endDragSafely();
+
+    window.addEventListener('pointerup', onPointerUp, { passive: true });
+    window.addEventListener('pointercancel', onPointerCancel, {
+      passive: true,
+    });
+    window.addEventListener('blur', onBlur);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
+      window.removeEventListener('blur', onBlur);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
 
   // 处理窗口大小变化
   useEffect(() => {
@@ -254,11 +192,11 @@ const FloatingToggleButton = () => {
     <button
       ref={buttonRef}
       onClick={handleClick}
-      onMouseDown={handleMouseDown}
-      onMouseUp={handleMouseUp}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchEnd}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPointerLeave={handlePointerUp}
       className={`
         md:hidden fixed z-[9999] w-14 h-14 rounded-full shadow-lg
         bg-green-600 hover:bg-green-700 active:bg-green-800
