@@ -1307,7 +1307,20 @@ function PlayPageClient() {
         };
       }
 
-      // 添加全局的事件对象保护
+      // 创建增强的事件安全包装器函数
+      const createSafeEventHandler = (handler: (e: any) => void) => {
+        return (originalEvent: any) => {
+          try {
+            const safeEvent = createSafeEvent(originalEvent);
+            handler(safeEvent);
+          } catch (error) {
+            console.warn('Event handler error caught and handled:', error);
+            // 继续执行，不中断播放器功能
+          }
+        };
+      };
+
+      // 添加全局的事件对象保护（增强版）
       const createSafeEvent = (originalEvent: any) => {
         if (!originalEvent || typeof originalEvent !== 'object') {
           return {
@@ -1318,10 +1331,18 @@ function PlayPageClient() {
             stopPropagation: () => {
               /* noop */
             },
+            stopImmediatePropagation: () => {
+              /* noop */
+            },
             composedPath: () => [],
             target: null,
             currentTarget: null,
             timeStamp: Date.now(),
+            bubbles: false,
+            cancelable: false,
+            defaultPrevented: false,
+            eventPhase: 0,
+            isTrusted: false,
           };
         }
 
@@ -1336,8 +1357,21 @@ function PlayPageClient() {
             /* noop */
           };
         }
+        if (typeof originalEvent.stopImmediatePropagation !== 'function') {
+          originalEvent.stopImmediatePropagation = () => {
+            /* noop */
+          };
+        }
         if (typeof originalEvent.composedPath !== 'function') {
           originalEvent.composedPath = () => [];
+        }
+
+        // 确保基本属性存在
+        if (typeof originalEvent.timeStamp !== 'number') {
+          originalEvent.timeStamp = Date.now();
+        }
+        if (typeof originalEvent.type !== 'string') {
+          originalEvent.type = 'unknown';
         }
 
         return originalEvent;
@@ -1540,90 +1574,83 @@ function PlayPageClient() {
         setIsVideoLoading(false);
       });
 
-      artPlayerRef.current.on('error', (err: any) => {
-        // 添加事件对象验证，防止 composedPath 错误
-        if (!err || typeof err !== 'object') {
-          console.warn('Invalid event object in error handler');
-          return;
-        }
-
-        // 提供更详细的错误信息
-        let errorMessage = '播放器错误: ';
-        if (err instanceof Error) {
-          errorMessage += err.message;
-        } else if (err.type) {
-          errorMessage += `事件类型: ${err.type}`;
-        } else if (err.code) {
-          errorMessage += `错误代码: ${err.code}`;
-        } else if (err.target && err.target.error) {
-          const videoError = err.target.error;
-          if (videoError) {
-            errorMessage += `视频错误 - 代码: ${videoError.code}, 消息: ${videoError.message}`;
+      artPlayerRef.current.on(
+        'error',
+        createSafeEventHandler((err: any) => {
+          // 提供更详细的错误信息
+          let errorMessage = '播放器错误: ';
+          if (err instanceof Error) {
+            errorMessage += err.message;
+          } else if (err.type) {
+            errorMessage += `事件类型: ${err.type}`;
+          } else if (err.code) {
+            errorMessage += `错误代码: ${err.code}`;
+          } else if (err.target && err.target.error) {
+            const videoError = err.target.error;
+            if (videoError) {
+              errorMessage += `视频错误 - 代码: ${videoError.code}, 消息: ${videoError.message}`;
+            }
+          } else {
+            errorMessage += '未知错误';
           }
-        } else {
-          errorMessage += '未知错误';
-        }
 
-        console.error(errorMessage, err);
+          console.error(errorMessage, err);
 
-        // 如果是视频元素错误，提供更具体的处理
-        if (err.target && err.target.error) {
-          const videoError = err.target.error;
-          switch (videoError.code) {
-            case 1: // MEDIA_ERR_ABORTED
-              console.warn('视频播放被中止');
-              break;
-            case 2: // MEDIA_ERR_NETWORK
-              console.warn('网络错误导致视频下载失败');
-              break;
-            case 3: // MEDIA_ERR_DECODE
-              console.warn('视频解码错误');
-              break;
-            case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
-              console.warn('视频格式不支持或文件不存在');
-              setError('视频格式不支持或文件不存在');
-              break;
-            default:
-              console.warn('未知视频错误');
+          // 如果是视频元素错误，提供更具体的处理
+          if (err.target && err.target.error) {
+            const videoError = err.target.error;
+            switch (videoError.code) {
+              case 1: // MEDIA_ERR_ABORTED
+                console.warn('视频播放被中止');
+                break;
+              case 2: // MEDIA_ERR_NETWORK
+                console.warn('网络错误导致视频下载失败');
+                break;
+              case 3: // MEDIA_ERR_DECODE
+                console.warn('视频解码错误');
+                break;
+              case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+                console.warn('视频格式不支持或文件不存在');
+                setError('视频格式不支持或文件不存在');
+                break;
+              default:
+                console.warn('未知视频错误');
+            }
           }
-        }
 
-        if (artPlayerRef.current && artPlayerRef.current.currentTime > 0) {
-          return;
-        }
-      });
+          if (artPlayerRef.current && artPlayerRef.current.currentTime > 0) {
+            return;
+          }
+        })
+      );
 
       // 监听视频播放结束事件，自动播放下一集
-      artPlayerRef.current.on('video:ended', (e: any) => {
-        // 添加事件对象验证，防止 composedPath 错误
-        if (!e || typeof e !== 'object') {
-          console.warn('Invalid event object in ended handler');
-          return;
-        }
-        const d = detailRef.current;
-        const idx = currentEpisodeIndexRef.current;
-        if (d && d.episodes && idx < d.episodes.length - 1) {
-          setTimeout(() => {
-            setCurrentEpisodeIndex(idx + 1);
-          }, 1000);
-        }
-      });
+      artPlayerRef.current.on(
+        'video:ended',
+        createSafeEventHandler((e: any) => {
+          const d = detailRef.current;
+          const idx = currentEpisodeIndexRef.current;
+          if (d && d.episodes && idx < d.episodes.length - 1) {
+            setTimeout(() => {
+              setCurrentEpisodeIndex(idx + 1);
+            }, 1000);
+          }
+        })
+      );
 
       // 监听拖拽开始事件
-      artPlayerRef.current.on('video:seeking', (e: any) => {
-        try {
-          createSafeEvent(e);
+      artPlayerRef.current.on(
+        'video:seeking',
+        createSafeEventHandler((e: any) => {
           isSeekingRef.current = true;
           // 降低日志噪声与主线程压力
-        } catch (err) {
-          console.error('处理 seeking 事件时出错:', err);
-        }
-      });
+        })
+      );
 
       // 监听拖拽结束事件
-      artPlayerRef.current.on('video:seeked', (e: any) => {
-        try {
-          createSafeEvent(e);
+      artPlayerRef.current.on(
+        'video:seeked',
+        createSafeEventHandler((e: any) => {
           isSeekingRef.current = false;
           // 设置拖拽后的短冷却窗口，期间跳过卡死检测与频繁保存
           seekCooldownUntilRef.current = Date.now() + 800; // 0.8s 冷却
@@ -1631,101 +1658,105 @@ function PlayPageClient() {
           setTimeout(() => {
             saveCurrentPlayProgress(true);
           }, 100);
-        } catch (err) {
-          console.error('处理 seeked 事件时出错:', err);
-        }
-      });
+        })
+      );
 
-      artPlayerRef.current.on('video:timeupdate', (e: any) => {
-        createSafeEvent(e);
-        const now = Date.now();
-        // 拖拽后冷却期：跳过卡死检测与频繁保存，提升进度条流畅性
-        if (now < seekCooldownUntilRef.current || isSeekingRef.current) {
-          return;
-        }
-        const player = artPlayerRef.current;
-        const currentTime = player?.currentTime || 0;
+      artPlayerRef.current.on(
+        'video:timeupdate',
+        createSafeEventHandler((e: any) => {
+          const now = Date.now();
+          // 拖拽后冷却期：跳过卡死检测与频繁保存，提升进度条流畅性
+          if (now < seekCooldownUntilRef.current || isSeekingRef.current) {
+            return;
+          }
+          const player = artPlayerRef.current;
+          const currentTime = player?.currentTime || 0;
 
-        // 更稳健的卡死检测逻辑：
-        // 仅在未暂停、页面可见且视频已具备足够数据时进行判断
-        const isPaused = !!player?.paused;
-        const isPageVisible =
-          typeof document !== 'undefined'
-            ? document.visibilityState === 'visible'
-            : true;
-        const readyState = (player?.video?.readyState as number) ?? 0; // HAVE_CURRENT_DATA=2, HAVE_FUTURE_DATA=3
+          // 更稳健的卡死检测逻辑：
+          // 仅在未暂停、页面可见且视频已具备足够数据时进行判断
+          const isPaused = !!player?.paused;
+          const isPageVisible =
+            typeof document !== 'undefined'
+              ? document.visibilityState === 'visible'
+              : true;
+          const readyState = (player?.video?.readyState as number) ?? 0; // HAVE_CURRENT_DATA=2, HAVE_FUTURE_DATA=3
 
-        if (!isPaused && isPageVisible && readyState >= 2) {
-          // 每隔 >= 1500ms 才进行一次卡死评估，避免高频误判
-          const lastCheckTs = lastProgressCheckTsRef.current || 0;
-          if (now - lastCheckTs >= 1500) {
-            const lastMediaT = lastMediaTimeForStallRef.current || 0;
-            const progressed = currentTime - lastMediaT;
+          if (!isPaused && isPageVisible && readyState >= 2) {
+            // 每隔 >= 1500ms 才进行一次卡死评估，避免高频误判
+            const lastCheckTs = lastProgressCheckTsRef.current || 0;
+            if (now - lastCheckTs >= 1500) {
+              const lastMediaT = lastMediaTimeForStallRef.current || 0;
+              const progressed = currentTime - lastMediaT;
 
-            if (progressed < 0.2) {
-              // 近 1.5s 内几乎没有前进，记录一次疑似卡死
-              stuckCountRef.current += 1;
-              if (stuckCountRef.current >= 3) {
-                // 连续三次评估（约≥4.5s）无进展，进行温和恢复
-                console.warn('检测到播放疑似卡死，进行轻微跳帧恢复...');
-                try {
-                  // 轻微跳过极小间隔，触发解码器推进
-                  const nudge = Math.min(
-                    (player?.duration || 0) - currentTime,
-                    0.05
-                  );
-                  if (nudge > 0 && Number.isFinite(nudge)) {
-                    player.currentTime = currentTime + nudge;
+              if (progressed < 0.2) {
+                // 近 1.5s 内几乎没有前进，记录一次疑似卡死
+                stuckCountRef.current += 1;
+                if (stuckCountRef.current >= 3) {
+                  // 连续三次评估（约≥4.5s）无进展，进行温和恢复
+                  console.warn('检测到播放疑似卡死，进行轻微跳帧恢复...');
+                  try {
+                    // 轻微跳过极小间隔，触发解码器推进
+                    const nudge = Math.min(
+                      (player?.duration || 0) - currentTime,
+                      0.05
+                    );
+                    if (nudge > 0 && Number.isFinite(nudge)) {
+                      player.currentTime = currentTime + nudge;
+                    }
+                    // 继续播放
+                    player?.play?.();
+                  } catch (err) {
+                    console.warn('播放恢复失败:', err);
+                  } finally {
+                    stuckCountRef.current = 0;
                   }
-                  // 继续播放
-                  player?.play?.();
-                } catch (err) {
-                  console.warn('播放恢复失败:', err);
-                } finally {
-                  stuckCountRef.current = 0;
                 }
+              } else {
+                // 有正常推进，重置计数
+                stuckCountRef.current = 0;
               }
-            } else {
-              // 有正常推进，重置计数
-              stuckCountRef.current = 0;
+              lastMediaTimeForStallRef.current = currentTime;
+              lastProgressCheckTsRef.current = now;
             }
+          } else {
+            // 暂停或不可见状态下不进行卡死统计
+            stuckCountRef.current = 0;
             lastMediaTimeForStallRef.current = currentTime;
             lastProgressCheckTsRef.current = now;
           }
-        } else {
-          // 暂停或不可见状态下不进行卡死统计
+
+          let interval = 5000;
+          if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'd1') {
+            interval = 10000;
+          }
+          if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'upstash') {
+            interval = 20000;
+          }
+          if (now - lastSaveTimeRef.current > interval) {
+            saveCurrentPlayProgress(); // 使用防抖机制
+            lastSaveTimeRef.current = now;
+          }
+        })
+      );
+
+      artPlayerRef.current.on(
+        'pause',
+        createSafeEventHandler((e: any) => {
+          saveCurrentPlayProgress(true); // 暂停时立即保存
+          // 重置卡死计数器
           stuckCountRef.current = 0;
-          lastMediaTimeForStallRef.current = currentTime;
-          lastProgressCheckTsRef.current = now;
-        }
-
-        let interval = 5000;
-        if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'd1') {
-          interval = 10000;
-        }
-        if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'upstash') {
-          interval = 20000;
-        }
-        if (now - lastSaveTimeRef.current > interval) {
-          saveCurrentPlayProgress(); // 使用防抖机制
-          lastSaveTimeRef.current = now;
-        }
-      });
-
-      artPlayerRef.current.on('pause', (e: any) => {
-        createSafeEvent(e);
-        saveCurrentPlayProgress(true); // 暂停时立即保存
-        // 重置卡死计数器
-        stuckCountRef.current = 0;
-      });
+        })
+      );
 
       // 添加播放状态监控
-      artPlayerRef.current.on('play', (e: any) => {
-        createSafeEvent(e);
-        // 重置卡死计数器
-        stuckCountRef.current = 0;
-        lastPlayTimeRef.current = artPlayerRef.current?.currentTime || 0;
-      });
+      artPlayerRef.current.on(
+        'play',
+        createSafeEventHandler((e: any) => {
+          // 重置卡死计数器
+          stuckCountRef.current = 0;
+          lastPlayTimeRef.current = artPlayerRef.current?.currentTime || 0;
+        })
+      );
 
       if (artPlayerRef.current?.video) {
         ensureVideoSource(
