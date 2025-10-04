@@ -174,6 +174,86 @@ function PlayPageClient() {
   const [hlsErrorCount, setHlsErrorCount] = useState(0);
   const [showHlsErrorTip, setShowHlsErrorTip] = useState(false);
 
+  // 网络状态监控
+  const [networkStatus, setNetworkStatus] = useState<
+    'online' | 'offline' | 'unstable'
+  >('online');
+  const networkRetryCountRef = useRef<number>(0);
+  const lastNetworkCheckRef = useRef<number>(0);
+
+  // 网络状态检测和恢复
+  useEffect(() => {
+    let networkCheckInterval: NodeJS.Timeout | null = null;
+
+    const checkNetworkStability = async () => {
+      try {
+        const start = Date.now();
+        await fetch('/api/server-config', {
+          method: 'HEAD',
+          cache: 'no-cache',
+          signal: AbortSignal.timeout(5000),
+        });
+        const latency = Date.now() - start;
+
+        if (latency > 3000) {
+          setNetworkStatus('unstable');
+        } else {
+          setNetworkStatus('online');
+          networkRetryCountRef.current = 0;
+        }
+      } catch (error) {
+        setNetworkStatus('offline');
+        networkRetryCountRef.current++;
+
+        // 网络离线时暂停播放器以节省带宽
+        if (artPlayerRef.current && !artPlayerRef.current.paused) {
+          console.warn('网络连接丢失，暂停播放');
+          artPlayerRef.current.pause();
+        }
+      }
+    };
+
+    const handleOnline = () => {
+      console.log('网络连接恢复');
+      setNetworkStatus('online');
+      networkRetryCountRef.current = 0;
+
+      // 网络恢复时尝试恢复播放
+      if (artPlayerRef.current && artPlayerRef.current.paused) {
+        setTimeout(() => {
+          if (artPlayerRef.current) {
+            artPlayerRef.current.play().catch(() => {
+              console.warn('网络恢复后自动播放失败');
+            });
+          }
+        }, 1000);
+      }
+    };
+
+    const handleOffline = () => {
+      console.warn('网络连接断开');
+      setNetworkStatus('offline');
+    };
+
+    // 监听网络状态变化
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // 定期检查网络稳定性
+    networkCheckInterval = setInterval(checkNetworkStability, 30000);
+
+    // 初始检查
+    checkNetworkStability();
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      if (networkCheckInterval) {
+        clearInterval(networkCheckInterval);
+      }
+    };
+  }, []);
+
   // 监听HLS错误计数，当错误过多时显示提示
   useEffect(() => {
     if (hlsErrorCount > 5) {
@@ -1216,7 +1296,7 @@ function PlayPageClient() {
     const originalError = window.onerror;
     const originalUnhandledRejection = window.onunhandledrejection;
 
-    // 定义需要静默处理的错误模式
+    // 定义需要静默处理的错误模式 - 扩展错误模式覆盖
     const silentErrorPatterns = [
       'composedPath',
       'undefined is not an object',
@@ -1224,6 +1304,15 @@ function PlayPageClient() {
       'Cannot read properties',
       'TypeError: undefined is not an object',
       'TypeError: null is not an object',
+      'event.composedPath is not a function',
+      'event.composedPath is not defined',
+      'target.composedPath',
+      'TypeError: e.composedPath',
+      'ReferenceError',
+      'target is not defined',
+      'path.composedPath',
+      'composedPath of undefined',
+      'composedPath of null',
     ];
 
     const shouldSilenceError = (message: string) => {
@@ -1374,56 +1463,62 @@ function PlayPageClient() {
       if (typeof Event !== 'undefined' && Event.prototype) {
         const originalComposedPath = Event.prototype.composedPath;
 
-        // 检查是否需要添加 composedPath 方法
-        if (typeof originalComposedPath !== 'function') {
-          Object.defineProperty(Event.prototype, 'composedPath', {
-            value: function () {
+        // 安全的composedPath实现
+        const safeComposedPathImpl = function (this: Event) {
+          try {
+            const path = [];
+            let current = this?.target as any;
+
+            // 安全地遍历DOM树构建路径
+            while (current && current.nodeType) {
+              path.push(current);
               try {
-                const path = [];
-                let current = this?.target;
-                // 安全地遍历DOM树构建路径
-                while (current && current.nodeType) {
-                  path.push(current);
-                  current = current.parentNode || current.host; // 支持Shadow DOM
-                }
-                // 添加document和window到路径末尾
-                if (path.length > 0) {
-                  const doc = current?.ownerDocument || document;
-                  if (doc && !path.includes(doc)) path.push(doc);
-                  if (typeof window !== 'undefined' && !path.includes(window)) {
-                    path.push(window);
-                  }
-                }
-                return path;
-              } catch (error) {
-                return [];
+                current = current.parentNode || current.host; // 支持Shadow DOM
+              } catch (e) {
+                break; // 遇到访问限制时停止遍历
               }
-            },
+            }
+
+            // 添加document和window到路径末尾
+            if (path.length > 0) {
+              try {
+                const doc =
+                  (path[0] && (path[0] as any).ownerDocument) || document;
+                if (doc && !path.includes(doc)) path.push(doc);
+                if (typeof window !== 'undefined' && !path.includes(window)) {
+                  path.push(window);
+                }
+              } catch (e) {
+                // 忽略访问错误
+              }
+            }
+
+            return path;
+          } catch (error) {
+            return [];
+          }
+        };
+
+        // 检查是否需要添加或替换 composedPath 方法
+        if (typeof originalComposedPath !== 'function') {
+          // 不存在composedPath方法，添加实现
+          Object.defineProperty(Event.prototype, 'composedPath', {
+            value: safeComposedPathImpl,
             writable: false,
             enumerable: false, // 确保不影响for...in循环
             configurable: true,
           });
         } else {
-          // 如果方法存在，确保其安全性
-          const safeComposedPath = originalComposedPath;
+          // 已存在，包装原始方法确保安全性
           Object.defineProperty(Event.prototype, 'composedPath', {
             value: function () {
               try {
-                const result = safeComposedPath.call(this);
+                // 尝试调用原始方法
+                const result = originalComposedPath.call(this);
                 return Array.isArray(result) ? result : [];
               } catch (error) {
-                // 降级到备用实现
-                try {
-                  const path = [];
-                  let current = this?.target;
-                  while (current && current.nodeType) {
-                    path.push(current);
-                    current = current.parentNode || current.host;
-                  }
-                  return path;
-                } catch (fallbackError) {
-                  return [];
-                }
+                // 原始方法失败，使用降级实现
+                return safeComposedPathImpl.call(this);
               }
             },
             writable: false,
@@ -1477,21 +1572,26 @@ function PlayPageClient() {
               backBufferLength: 30, // 仅保留 30s 已播放内容，避免内存占用
               maxBufferSize: 60 * 1000 * 1000, // 约 60MB，超出后触发清理
 
-              /* 网络和超时配置 */
-              fragLoadingTimeOut: 20000, // 片段加载超时时间增加到20秒
-              manifestLoadingTimeOut: 10000, // manifest加载超时时间
-              levelLoadingTimeOut: 10000, // 级别加载超时时间
-              maxLoadingDelay: 4, // 最大加载延迟
-              maxBufferHole: 0.5, // 最大缓冲空洞
-              highBufferWatchdogPeriod: 2, // 高缓冲监控周期
+              /* 网络和超时配置 - 针对不稳定网络优化 */
+              fragLoadingTimeOut: 25000, // 片段加载超时时间增加到25秒
+              manifestLoadingTimeOut: 15000, // manifest加载超时时间增加
+              levelLoadingTimeOut: 15000, // 级别加载超时时间增加
+              maxLoadingDelay: 6, // 最大加载延迟增加
+              maxBufferHole: 1.0, // 允许更大的缓冲空洞
+              highBufferWatchdogPeriod: 3, // 高缓冲监控周期增加
+              nudgeOffset: 0.1, // 添加微调偏移
 
-              /* 重试配置 */
-              fragLoadingMaxRetry: 6, // 片段加载最大重试次数
-              manifestLoadingMaxRetry: 4, // manifest加载最大重试次数
-              levelLoadingMaxRetry: 4, // 级别加载最大重试次数
-              fragLoadingRetryDelay: 1000, // 片段加载重试延迟
-              manifestLoadingRetryDelay: 1000, // manifest加载重试延迟
-              levelLoadingRetryDelay: 1000, // 级别加载重试延迟
+              /* 重试配置 - 更激进的重试策略 */
+              fragLoadingMaxRetry: 8, // 片段加载最大重试次数增加
+              manifestLoadingMaxRetry: 6, // manifest加载最大重试次数增加
+              levelLoadingMaxRetry: 6, // 级别加载最大重试次数增加
+              fragLoadingRetryDelay: 500, // 片段加载重试延迟减少，更快重试
+              manifestLoadingRetryDelay: 800, // manifest加载重试延迟
+              levelLoadingRetryDelay: 800, // 级别加载重试延迟
+
+              /* 网络适应性配置 */
+              maxMaxBufferLength: 600, // 最大缓冲长度上限
+              startFragPrefetch: true, // 启用片段预取
 
               /* 自定义loader */
               loader: blockAdEnabledRef.current
@@ -1759,15 +1859,24 @@ function PlayPageClient() {
           const buffered = player?.video?.buffered;
           const duration = player?.duration || 0;
 
-          // 检查缓冲状态
+          // 检查缓冲状态 - 更精确的缓冲检测
           let hasBufferedData = false;
+          let bufferedAhead = 0;
           if (buffered && buffered.length > 0) {
             for (let i = 0; i < buffered.length; i++) {
-              if (
-                currentTime >= buffered.start(i) &&
-                currentTime <= buffered.end(i)
-              ) {
+              const start = buffered.start(i);
+              const end = buffered.end(i);
+
+              // 检查当前时间是否在缓冲范围内
+              if (currentTime >= start && currentTime <= end) {
                 hasBufferedData = true;
+                bufferedAhead = end - currentTime; // 计算前方缓冲时长
+                break;
+              }
+
+              // 检查是否有前方缓冲
+              if (start > currentTime && start - currentTime < 2) {
+                bufferedAhead = end - currentTime;
                 break;
               }
             }
@@ -1780,9 +1889,14 @@ function PlayPageClient() {
               const lastMediaT = lastMediaTimeForStallRef.current || 0;
               const progressed = currentTime - lastMediaT;
 
-              // 更严格的卡死判断条件
+              // 更智能的卡死判断条件 - 降低误判率
               const isStuck =
-                progressed < 0.1 && hasBufferedData && currentTime > 1;
+                progressed < 0.03 && // 进度推进极小（降低阈值）
+                (hasBufferedData || bufferedAhead > 0.3) && // 有缓冲数据或前方有足够缓冲
+                currentTime > 2 && // 播放时间超过2秒
+                readyState >= 3 && // 有足够数据可播放
+                !isSeekingRef.current && // 确保不在拖拽中
+                isPageVisible; // 页面可见
 
               if (isStuck) {
                 stuckCountRef.current += 1;
@@ -1796,41 +1910,105 @@ function PlayPageClient() {
 
                 if (stuckCountRef.current >= 3) {
                   // 连续3次评估(约6秒)无进展，进行渐进式恢复
-                  console.warn('检测到播放卡死，开始渐进式恢复策略...');
+                  console.warn('检测到播放卡死，开始渐进式恢复策略...', {
+                    stuckCount: stuckCountRef.current,
+                    currentTime: currentTime.toFixed(2),
+                    bufferedAhead: bufferedAhead.toFixed(2),
+                    readyState,
+                  });
+
                   try {
-                    // 策略1: 微小跳跃 (0.1秒)
+                    const hls = player?.video?.hls;
+
+                    // 策略1: 微小跳跃 (0.05秒)
                     if (stuckCountRef.current === 3) {
-                      const smallNudge = Math.min(duration - currentTime, 0.1);
+                      const smallNudge = Math.min(duration - currentTime, 0.05);
                       if (smallNudge > 0) {
                         player.currentTime = currentTime + smallNudge;
-                        console.log('应用微小跳跃恢复:', smallNudge);
+                        console.log('应用微小跳跃恢复:', smallNudge.toFixed(3));
                       }
                     }
-                    // 策略2: 中等跳跃 (0.5秒)
+                    // 策略2: 中等跳跃 (0.2秒)
                     else if (stuckCountRef.current === 4) {
-                      const mediumNudge = Math.min(duration - currentTime, 0.5);
+                      const mediumNudge = Math.min(duration - currentTime, 0.2);
                       if (mediumNudge > 0) {
                         player.currentTime = currentTime + mediumNudge;
-                        console.log('应用中等跳跃恢复:', mediumNudge);
+                        console.log(
+                          '应用中等跳跃恢复:',
+                          mediumNudge.toFixed(3)
+                        );
                       }
                     }
-                    // 策略3: 重新加载当前片段
-                    else if (stuckCountRef.current >= 5) {
+                    // 策略3: 大跳跃 (0.5秒)
+                    else if (stuckCountRef.current === 5) {
+                      const largeNudge = Math.min(duration - currentTime, 0.5);
+                      if (largeNudge > 0) {
+                        player.currentTime = currentTime + largeNudge;
+                        console.log('应用大跳跃恢复:', largeNudge.toFixed(3));
+                      }
+                    }
+                    // 策略4: HLS重载当前片段
+                    else if (stuckCountRef.current === 6) {
                       console.log('应用HLS重载恢复策略');
-                      const hls = player?.video?.hls;
                       if (hls && typeof hls.startLoad === 'function') {
                         hls.stopLoad();
                         setTimeout(() => {
-                          hls.startLoad();
-                        }, 100);
+                          try {
+                            hls.startLoad();
+                          } catch (e) {
+                            console.warn('HLS重载失败:', e);
+                          }
+                        }, 200);
+                      }
+                    }
+                    // 策略5: 强制重新初始化HLS
+                    else if (stuckCountRef.current >= 7) {
+                      console.log('应用强制HLS重初始化策略');
+                      if (hls) {
+                        try {
+                          const currentLevel = hls.currentLevel;
+                          hls.destroy();
+
+                          // 短暂延迟后重新创建HLS实例
+                          setTimeout(() => {
+                            try {
+                              const newHls = new Hls({
+                                debug: false,
+                                startLevel:
+                                  currentLevel >= 0 ? currentLevel : -1,
+                                // 使用更保守的配置
+                                maxBufferLength: 15,
+                                fragLoadingTimeOut: 30000,
+                                fragLoadingMaxRetry: 10,
+                              });
+                              newHls.loadSource(videoUrl);
+                              newHls.attachMedia(player.video);
+                              player.video.hls = newHls;
+
+                              // 恢复播放位置
+                              setTimeout(() => {
+                                if (
+                                  player &&
+                                  player.currentTime !== currentTime
+                                ) {
+                                  player.currentTime = currentTime;
+                                }
+                              }, 500);
+                            } catch (e) {
+                              console.error('HLS重初始化失败:', e);
+                            }
+                          }, 300);
+                        } catch (e) {
+                          console.warn('HLS销毁失败:', e);
+                        }
                       }
                       stuckCountRef.current = 0; // 重置计数器
                     }
 
                     // 确保播放状态
                     if (player?.play && typeof player.play === 'function') {
-                      player.play().catch(() => {
-                        console.warn('自动播放失败');
+                      player.play().catch((playError: any) => {
+                        console.warn('自动播放失败:', playError);
                       });
                     }
                   } catch (err) {
@@ -2242,6 +2420,31 @@ function PlayPageClient() {
                       >
                         ✕
                       </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* 网络状态指示器 */}
+                {networkStatus === 'offline' && (
+                  <div className='absolute top-4 left-4 bg-red-500/90 backdrop-blur-sm text-white px-3 py-2 rounded-lg shadow-lg z-[600] transition-all duration-300'>
+                    <div className='flex items-center space-x-2'>
+                      <span className='text-sm'>🚫</span>
+                      <div>
+                        <p className='text-sm font-medium'>网络连接断开</p>
+                        <p className='text-xs opacity-90'>请检查网络连接</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {networkStatus === 'unstable' && (
+                  <div className='absolute top-4 left-4 bg-yellow-500/90 backdrop-blur-sm text-white px-3 py-2 rounded-lg shadow-lg z-[600] transition-all duration-300'>
+                    <div className='flex items-center space-x-2'>
+                      <span className='text-sm'>⚠️</span>
+                      <div>
+                        <p className='text-sm font-medium'>网络不稳定</p>
+                        <p className='text-xs opacity-90'>可能影响播放效果</p>
+                      </div>
                     </div>
                   </div>
                 )}
