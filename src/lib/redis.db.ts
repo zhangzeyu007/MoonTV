@@ -110,6 +110,14 @@ export class RedisStorage implements IStorage {
     await withRetry(() => this.client.del(this.prKey(userName, key)));
   }
 
+  async clearAllPlayRecords(userName: string): Promise<void> {
+    const pattern = `u:${userName}:pr:*`;
+    const keys: string[] = await withRetry(() => this.client.keys(pattern));
+    if (keys.length > 0) {
+      await withRetry(() => this.client.del(keys));
+    }
+  }
+
   // ---------- 收藏 ----------
   private favKey(user: string, key: string) {
     return `u:${user}:fav:${key}`;

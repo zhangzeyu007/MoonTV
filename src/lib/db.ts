@@ -89,6 +89,10 @@ export class DbManager {
     await this.storage.deletePlayRecord(userName, key);
   }
 
+  async clearAllPlayRecords(userName: string): Promise<void> {
+    await this.storage.clearAllPlayRecords(userName);
+  }
+
   // 收藏相关方法
   async getFavorite(
     userName: string,

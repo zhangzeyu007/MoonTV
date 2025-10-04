@@ -169,6 +169,19 @@ export class D1Storage implements IStorage {
     }
   }
 
+  async clearAllPlayRecords(userName: string): Promise<void> {
+    try {
+      const db = await this.getDatabase();
+      await db
+        .prepare('DELETE FROM play_records WHERE username = ?')
+        .bind(userName)
+        .run();
+    } catch (err) {
+      console.error('Failed to clear all play records:', err);
+      throw err;
+    }
+  }
+
   // 收藏相关
   async getFavorite(userName: string, key: string): Promise<Favorite | null> {
     try {
