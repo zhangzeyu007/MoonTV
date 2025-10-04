@@ -638,13 +638,6 @@ function SearchPageClient() {
             const delta = current - lastPos;
             lastPos = current;
 
-            console.log('[搜索页][滚动中]', {
-              isIOS,
-              current,
-              delta,
-              methods: scrollMethods,
-              ts: new Date().toISOString(),
-            });
             lastLogTs = now;
           }
           ticking = false;
