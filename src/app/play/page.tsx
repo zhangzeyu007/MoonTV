@@ -1217,8 +1217,14 @@ function PlayPageClient() {
     const originalUnhandledRejection = window.onunhandledrejection;
 
     window.onerror = (message, source, lineno, colno, error) => {
-      if (typeof message === 'string' && message.includes('composedPath')) {
-        console.warn('Caught composedPath error:', message);
+      if (
+        typeof message === 'string' &&
+        (message.includes('composedPath') ||
+          message.includes('undefined is not an object') ||
+          (message.includes('Cannot read property') &&
+            message.includes('composedPath')))
+      ) {
+        console.warn('Caught composedPath related error:', message);
         return true; // 阻止错误继续传播
       }
       if (originalError) {
@@ -1228,12 +1234,14 @@ function PlayPageClient() {
     };
 
     window.onunhandledrejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
       if (
-        event.reason &&
-        typeof event.reason === 'string' &&
-        event.reason.includes('composedPath')
+        reason &&
+        ((typeof reason === 'string' && reason.includes('composedPath')) ||
+          (reason.message && reason.message.includes('composedPath')) ||
+          (reason.toString && reason.toString().includes('composedPath')))
       ) {
-        console.warn('Caught composedPath promise rejection:', event.reason);
+        console.warn('Caught composedPath promise rejection:', reason);
         event.preventDefault();
         return;
       }
@@ -1274,8 +1282,56 @@ function PlayPageClient() {
     // 保存原始的 console.error 以便后续恢复
     const originalConsoleError = console.error;
 
+    // 保存原始的 addEventListener
+    const originalAddEventListener = EventTarget.prototype.addEventListener;
+
     try {
-      // 创建新的播放器实例
+      // 全局事件拦截器 - 在 DOM 事件系统级别防止 composedPath 错误
+      EventTarget.prototype.addEventListener = function (
+        type: string,
+        listener: any,
+        options?: any
+      ) {
+        const safeListener = function (this: any, event: any) {
+          try {
+            // 确保事件对象安全
+            if (event && typeof event === 'object') {
+              // 如果 composedPath 不存在或有问题，提供安全的实现
+              if (typeof event.composedPath !== 'function') {
+                Object.defineProperty(event, 'composedPath', {
+                  value: function () {
+                    try {
+                      const path = [];
+                      let current = this.target;
+                      while (current) {
+                        path.push(current);
+                        current = current.parentNode;
+                      }
+                      return path;
+                    } catch (e) {
+                      return [];
+                    }
+                  },
+                  writable: true,
+                  configurable: true,
+                });
+              }
+            }
+
+            // 调用原始监听器
+            if (typeof listener === 'function') {
+              return listener.call(this, event);
+            } else if (listener && typeof listener.handleEvent === 'function') {
+              return listener.handleEvent.call(listener, event);
+            }
+          } catch (error) {
+            // 静默处理错误，避免中断播放器功能
+            console.warn('Event listener error intercepted:', error);
+          }
+        };
+
+        return originalAddEventListener.call(this, type, safeListener, options);
+      };
 
       // 添加全局错误处理，防止 composedPath 等错误
       console.error = (...args) => {
@@ -1283,28 +1339,50 @@ function PlayPageClient() {
         const errorMessage = args.join(' ');
         if (
           errorMessage.includes('composedPath') ||
-          errorMessage.includes('undefined is not an object')
+          errorMessage.includes('undefined is not an object') ||
+          (errorMessage.includes('Cannot read property') &&
+            errorMessage.includes('composedPath')) ||
+          (errorMessage.includes('TypeError') &&
+            errorMessage.includes('composedPath'))
         ) {
-          console.warn('Filtered composedPath error:', ...args);
+          console.warn('Filtered composedPath related error:', ...args);
           return;
         }
         originalConsoleError.apply(console, args);
       };
 
-      // 为 Event 原型添加安全的 composedPath 方法
+      // 为 Event 原型添加安全的 composedPath 方法（增强版）
       if (typeof Event !== 'undefined' && Event.prototype) {
         const originalComposedPath = Event.prototype.composedPath;
-        Event.prototype.composedPath = function () {
-          try {
-            if (this && typeof originalComposedPath === 'function') {
-              return originalComposedPath.call(this);
+
+        // 确保 composedPath 方法存在且安全
+        Object.defineProperty(Event.prototype, 'composedPath', {
+          value: function () {
+            try {
+              // 检查原始方法是否存在并可调用
+              if (
+                originalComposedPath &&
+                typeof originalComposedPath === 'function'
+              ) {
+                const result = originalComposedPath.call(this);
+                return Array.isArray(result) ? result : [];
+              }
+              // 如果没有原始方法，提供基本实现
+              const path = [];
+              let current = this?.target;
+              while (current) {
+                path.push(current);
+                current = current.parentNode;
+              }
+              return path;
+            } catch (error) {
+              // 静默处理错误，返回空数组
+              return [];
             }
-            return [];
-          } catch (error) {
-            console.warn('Safe composedPath fallback:', error);
-            return [];
-          }
-        };
+          },
+          writable: true,
+          configurable: true,
+        });
       }
 
       // 创建增强的事件安全包装器函数
@@ -1346,35 +1424,79 @@ function PlayPageClient() {
           };
         }
 
-        // 确保事件对象有必要的安全方法
-        if (typeof originalEvent.preventDefault !== 'function') {
-          originalEvent.preventDefault = () => {
-            /* noop */
-          };
-        }
-        if (typeof originalEvent.stopPropagation !== 'function') {
-          originalEvent.stopPropagation = () => {
-            /* noop */
-          };
-        }
-        if (typeof originalEvent.stopImmediatePropagation !== 'function') {
-          originalEvent.stopImmediatePropagation = () => {
-            /* noop */
-          };
-        }
-        if (typeof originalEvent.composedPath !== 'function') {
-          originalEvent.composedPath = () => [];
-        }
+        // 使用 try-catch 包装所有对原始事件的访问
+        try {
+          // 确保事件对象有必要的安全方法
+          if (typeof originalEvent.preventDefault !== 'function') {
+            originalEvent.preventDefault = () => {
+              /* noop */
+            };
+          }
+          if (typeof originalEvent.stopPropagation !== 'function') {
+            originalEvent.stopPropagation = () => {
+              /* noop */
+            };
+          }
+          if (typeof originalEvent.stopImmediatePropagation !== 'function') {
+            originalEvent.stopImmediatePropagation = () => {
+              /* noop */
+            };
+          }
 
-        // 确保基本属性存在
-        if (typeof originalEvent.timeStamp !== 'number') {
-          originalEvent.timeStamp = Date.now();
-        }
-        if (typeof originalEvent.type !== 'string') {
-          originalEvent.type = 'unknown';
-        }
+          // 安全地处理 composedPath 方法
+          const originalComposedPath = originalEvent.composedPath;
+          originalEvent.composedPath = function () {
+            try {
+              if (
+                originalComposedPath &&
+                typeof originalComposedPath === 'function'
+              ) {
+                const result = originalComposedPath.call(this);
+                return Array.isArray(result) ? result : [];
+              }
+              return [];
+            } catch (e) {
+              return [];
+            }
+          };
 
-        return originalEvent;
+          // 确保基本属性存在
+          if (typeof originalEvent.timeStamp !== 'number') {
+            originalEvent.timeStamp = Date.now();
+          }
+          if (typeof originalEvent.type !== 'string') {
+            originalEvent.type = 'unknown';
+          }
+
+          return originalEvent;
+        } catch (error) {
+          // 如果处理原始事件失败，返回安全的默认事件对象
+          console.warn(
+            'Failed to process original event, using safe fallback:',
+            error
+          );
+          return {
+            type: originalEvent?.type || 'unknown',
+            preventDefault: () => {
+              /* noop */
+            },
+            stopPropagation: () => {
+              /* noop */
+            },
+            stopImmediatePropagation: () => {
+              /* noop */
+            },
+            composedPath: () => [],
+            target: originalEvent?.target || null,
+            currentTarget: originalEvent?.currentTarget || null,
+            timeStamp: originalEvent?.timeStamp || Date.now(),
+            bubbles: !!originalEvent?.bubbles,
+            cancelable: !!originalEvent?.cancelable,
+            defaultPrevented: !!originalEvent?.defaultPrevented,
+            eventPhase: originalEvent?.eventPhase || 0,
+            isTrusted: !!originalEvent?.isTrusted,
+          };
+        }
       };
 
       if (!Artplayer) {
@@ -1528,51 +1650,57 @@ function PlayPageClient() {
       });
 
       // 监听播放器事件
-      artPlayerRef.current.on('ready', (e: any) => {
-        createSafeEvent(e);
-        setError(null);
-      });
+      artPlayerRef.current.on(
+        'ready',
+        createSafeEventHandler((e: any) => {
+          setError(null);
+        })
+      );
 
-      artPlayerRef.current.on('video:volumechange', (e: any) => {
-        createSafeEvent(e);
-        lastVolumeRef.current = artPlayerRef.current.volume;
-      });
+      artPlayerRef.current.on(
+        'video:volumechange',
+        createSafeEventHandler((e: any) => {
+          lastVolumeRef.current = artPlayerRef.current.volume;
+        })
+      );
 
       // 监听视频可播放事件，这时恢复播放进度更可靠
-      artPlayerRef.current.on('video:canplay', (e: any) => {
-        createSafeEvent(e);
-
-        // 若存在需要恢复的播放进度，则跳转
-        if (resumeTimeRef.current && resumeTimeRef.current > 0) {
-          try {
-            const duration = artPlayerRef.current.duration || 0;
-            let target = resumeTimeRef.current;
-            if (duration && target >= duration - 2) {
-              target = Math.max(0, duration - 5);
+      artPlayerRef.current.on(
+        'video:canplay',
+        createSafeEventHandler((e: any) => {
+          // 若存在需要恢复的播放进度，则跳转
+          if (resumeTimeRef.current && resumeTimeRef.current > 0) {
+            try {
+              const duration = artPlayerRef.current.duration || 0;
+              let target = resumeTimeRef.current;
+              if (duration && target >= duration - 2) {
+                target = Math.max(0, duration - 5);
+              }
+              artPlayerRef.current.currentTime = target;
+              console.log('成功恢复播放进度到:', resumeTimeRef.current);
+            } catch (err) {
+              console.warn('恢复播放进度失败:', err);
             }
-            artPlayerRef.current.currentTime = target;
-            console.log('成功恢复播放进度到:', resumeTimeRef.current);
-          } catch (err) {
-            console.warn('恢复播放进度失败:', err);
           }
-        }
-        resumeTimeRef.current = null;
+          resumeTimeRef.current = null;
 
-        setTimeout(() => {
-          if (
-            Math.abs(artPlayerRef.current.volume - lastVolumeRef.current) > 0.01
-          ) {
-            artPlayerRef.current.volume = lastVolumeRef.current;
-          }
-          const notice = (artPlayerRef.current as any).notice;
-          if (notice && typeof notice.show === 'function') {
-            notice.show('');
-          }
-        }, 0);
+          setTimeout(() => {
+            if (
+              Math.abs(artPlayerRef.current.volume - lastVolumeRef.current) >
+              0.01
+            ) {
+              artPlayerRef.current.volume = lastVolumeRef.current;
+            }
+            const notice = (artPlayerRef.current as any).notice;
+            if (notice && typeof notice.show === 'function') {
+              notice.show('');
+            }
+          }, 0);
 
-        // 隐藏换源加载状态
-        setIsVideoLoading(false);
-      });
+          // 隐藏换源加载状态
+          setIsVideoLoading(false);
+        })
+      );
 
       artPlayerRef.current.on(
         'error',
@@ -1664,12 +1792,22 @@ function PlayPageClient() {
       artPlayerRef.current.on(
         'video:timeupdate',
         createSafeEventHandler((e: any) => {
+          // 额外的安全检查
+          if (!artPlayerRef.current) {
+            return;
+          }
+
           const now = Date.now();
           // 拖拽后冷却期：跳过卡死检测与频繁保存，提升进度条流畅性
           if (now < seekCooldownUntilRef.current || isSeekingRef.current) {
             return;
           }
+
           const player = artPlayerRef.current;
+          if (!player) {
+            return;
+          }
+
           const currentTime = player?.currentTime || 0;
 
           // 更稳健的卡死检测逻辑：
@@ -1767,9 +1905,16 @@ function PlayPageClient() {
 
       // 恢复原始的 console.error
       console.error = originalConsoleError;
+
+      // 恢复原始的 addEventListener
+      EventTarget.prototype.addEventListener = originalAddEventListener;
     } catch (err) {
       // 恢复原始的 console.error
       console.error = originalConsoleError;
+
+      // 恢复原始的 addEventListener
+      EventTarget.prototype.addEventListener = originalAddEventListener;
+
       console.error('创建播放器失败:', err);
       setError('播放器初始化失败');
     } finally {
