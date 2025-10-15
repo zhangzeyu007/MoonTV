@@ -349,6 +349,55 @@ function PlayPageClient() {
     }
   };
 
+  // 画中画切换
+  const handleTogglePictureInPicture = async () => {
+    try {
+      const p = artPlayerRef.current;
+      if (!p || !p.video) return;
+      const video = p.video as HTMLVideoElement;
+
+      // Safari 专用接口
+      // @ts-ignore
+      if (typeof video.webkitSetPresentationMode === 'function') {
+        // @ts-ignore
+        const mode = video.webkitPresentationMode;
+        // @ts-ignore
+        video.webkitSetPresentationMode(
+          mode === 'picture-in-picture' ? 'inline' : 'picture-in-picture'
+        );
+        return;
+      }
+
+      if (document.pictureInPictureEnabled) {
+        if (document.pictureInPictureElement) {
+          await (document as any).exitPictureInPicture?.();
+        } else {
+          if (video.readyState < 2) {
+            await new Promise((resolve) => {
+              const onCanPlay = () => {
+                video.removeEventListener('canplay', onCanPlay);
+                resolve(null);
+              };
+              video.addEventListener('canplay', onCanPlay, { once: true });
+            });
+          }
+          await (video as any).requestPictureInPicture?.();
+        }
+      } else {
+        const notice = (p as any).notice;
+        if (notice && typeof notice.show === 'function') {
+          notice.show('当前浏览器不支持画中画');
+        }
+      }
+    } catch (e) {
+      const p = artPlayerRef.current as any;
+      const notice = p?.notice;
+      if (notice && typeof notice.show === 'function') {
+        notice.show('切换画中画失败');
+      }
+    }
+  };
+
   // -----------------------------------------------------------------------------
   // 工具函数（Utils）
   // -----------------------------------------------------------------------------
@@ -811,21 +860,8 @@ function PlayPageClient() {
           // 不写入 scrollPosition，避免覆盖搜索页点击时保存的准确滚动
           parsed.timestamp = Date.now();
 
-          console.log('[播放页离开] 将仅写入返回锚点，不覆盖滚动位置:', {
-            anchorKey: parsed.anchorKey,
-            timestamp: parsed.timestamp,
-          });
-
           localStorage.setItem('searchPageState', JSON.stringify(parsed));
           localStorage.setItem('searchReturnTrigger', String(Date.now()));
-
-          console.log(
-            '[播放页离开] localStorage已更新(未写入scrollPosition):',
-            {
-              anchorKey: parsed.anchorKey,
-              timestamp: parsed.timestamp,
-            }
-          );
         } else {
           console.log('[播放页离开] 没有返回锚点，跳过保存');
         }
@@ -1377,6 +1413,33 @@ function PlayPageClient() {
 
     // WebKit浏览器或首次创建：销毁之前的播放器实例并创建新的
     if (artPlayerRef.current) {
+      try {
+        const video = artPlayerRef.current.video as
+          | HTMLVideoElement
+          | undefined;
+        if (video) {
+          // Safari 退出 PiP
+          // @ts-ignore
+          if (typeof video.webkitSetPresentationMode === 'function') {
+            // @ts-ignore
+            if (video.webkitPresentationMode === 'picture-in-picture') {
+              // @ts-ignore
+              video.webkitSetPresentationMode('inline');
+            }
+          }
+          // 标准 PiP 退出（非阻塞调用）
+          if (document.pictureInPictureElement) {
+            try {
+              const exit = (document as any).exitPictureInPicture;
+              if (typeof exit === 'function') exit.call(document);
+            } catch (err) {
+              // 忽略退出画中画失败
+            }
+          }
+        }
+      } catch (err) {
+        // 忽略退出画中画失败，确保销毁流程继续
+      }
       if (artPlayerRef.current.video && artPlayerRef.current.video.hls) {
         artPlayerRef.current.video.hls.destroy();
       }
@@ -1642,6 +1705,7 @@ function PlayPageClient() {
         theme: '#22c55e',
         lang: 'zh-cn',
         hotkey: false,
+        pip: true,
         type: 'm3u8',
         customType: {
           m3u8: function (video: HTMLVideoElement, url: string) {
@@ -2471,6 +2535,13 @@ function PlayPageClient() {
 
                 {/* 自定义简易控制栏 */}
                 <div className='absolute bottom-0 right-0 z-[550] flex items-center gap-2 bg-black/40 backdrop-blur-sm px-2 py-1 rounded-tl-md'>
+                  <button
+                    onClick={handleTogglePictureInPicture}
+                    className='text-white/90 hover:text-white text-sm px-2 py-1'
+                    aria-label='画中画'
+                  >
+                    画中画
+                  </button>
                   <button
                     onClick={handleSpeedCycle}
                     className='text-white/90 hover:text-white text-sm px-2 py-1'

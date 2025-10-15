@@ -37,6 +37,12 @@ function SearchPageClient() {
   const [showResults, setShowResults] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
 
+  // 挂载后再渲染易产生 SSR/CSR 差异的调试信息，避免水合警告
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // 搜索状态持久化相关
   const [isInitialized, setIsInitialized] = useState(false);
   const [isNavigatingBack, setIsNavigatingBack] = useState(false);
@@ -499,26 +505,9 @@ function SearchPageClient() {
         return;
       }
 
-      // 添加调试日志
-      // console.log('[滚动位置保存]', {
-      //   isIOS,
-      //   scrollMethod,
-      //   currentScroll,
-      //   windowScrollY: typeof window.scrollY === 'number' ? window.scrollY : 'undefined',
-      //   documentScrollTop: document.documentElement?.scrollTop || 0,
-      //   bodyScrollTop: document.body?.scrollTop || 0,
-      //   scrollingElementScrollTop: getScrollingElement()?.scrollTop || 0,
-      //   timestamp: new Date().toISOString()
-      // });
-
       parsedState.scrollPosition = currentScroll;
       parsedState.timestamp = Date.now();
       localStorage.setItem('searchPageState', JSON.stringify(parsedState));
-
-      // console.log('[滚动位置保存] localStorage已更新:', {
-      //   scrollPosition: currentScroll,
-      //   timestamp: parsedState.timestamp
-      // });
     } catch (error) {
       // console.error('[滚动位置保存] 错误:', error);
     }
@@ -562,7 +551,6 @@ function SearchPageClient() {
       // 延迟执行，确保页面完全渲染和滚动位置稳定
       setTimeout(() => {
         const currentPos = getCurrentScrollPosition();
-        // // console.log('[滚动位置初始化] 页面加载完成，更新滚动位置缓存:', currentPos);
 
         // 如果初始位置为0，再尝试几次获取
         if (currentPos === 0) {
@@ -573,7 +561,6 @@ function SearchPageClient() {
           const retryGetPosition = () => {
             attempts++;
             const retryPos = getCurrentScrollPosition();
-            // // console.log(`[滚动位置初始化] 重试获取位置 ${attempts}/${maxAttempts}:`, retryPos);
 
             if (retryPos > 0 || attempts >= maxAttempts) {
               // // console.log('[滚动位置初始化] 最终位置:', retryPos);
@@ -2069,15 +2056,18 @@ function SearchPageClient() {
 
             {/* 调试信息 */}
             {process.env.NODE_ENV === 'development' && (
-              <div className='text-xs text-gray-500 mt-2 text-center space-y-1'>
+              <div
+                className='text-xs text-gray-500 mt-2 text-center space-y-1'
+                suppressHydrationWarning
+              >
                 <div>
                   搜索框状态: "{searchQuery}" | 显示结果:{' '}
                   {showResults ? '是' : '否'} | 历史记录数:{' '}
                   {searchHistory.length}
                 </div>
                 <div className='text-xs text-blue-500'>
-                  滚动调试: iOS={isIOS ? '是' : '否'} | 待恢复位置:{' '}
-                  {pendingScrollPosition || '无'} | 当前滚动:{' '}
+                  滚动调试: iOS={mounted ? (isIOS ? '是' : '否') : '否'} |
+                  待恢复位置: {pendingScrollPosition || '无'} | 当前滚动:{' '}
                   {typeof window !== 'undefined'
                     ? Math.round(window.scrollY || 0)
                     : 0}
