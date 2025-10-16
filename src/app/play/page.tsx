@@ -349,6 +349,73 @@ function PlayPageClient() {
     }
   };
 
+  // PiP 状态管理
+  const [isPiPSupported, setIsPiPSupported] = useState(false);
+  const [isPiPActive, setIsPiPActive] = useState(false);
+
+  // 检测 PiP 支持
+  useEffect(() => {
+    const checkPiPSupport = () => {
+      if (typeof window === 'undefined') return;
+
+      const video = document.createElement('video');
+      const hasStandardPiP = 'pictureInPictureEnabled' in document;
+      const hasSafariPiP = 'webkitSetPresentationMode' in video;
+
+      setIsPiPSupported(hasStandardPiP || hasSafariPiP);
+    };
+
+    checkPiPSupport();
+  }, []);
+
+  // 监听 PiP 状态变化
+  useEffect(() => {
+    if (!isPiPSupported) return;
+
+    const handlePiPChange = () => {
+      const video = artPlayerRef.current?.video as HTMLVideoElement;
+      if (!video) return;
+
+      // Safari 专用状态检测
+      // @ts-ignore
+      if (typeof video.webkitPresentationMode !== 'undefined') {
+        // @ts-ignore
+        setIsPiPActive(video.webkitPresentationMode === 'picture-in-picture');
+        return;
+      }
+
+      // 标准 PiP 状态检测
+      setIsPiPActive(document.pictureInPictureElement === video);
+    };
+
+    const video = artPlayerRef.current?.video as HTMLVideoElement;
+    if (video) {
+      // Safari 事件监听
+      // @ts-ignore
+      if (typeof video.webkitpresentationmodechanged !== 'undefined') {
+        // @ts-ignore
+        video.addEventListener(
+          'webkitpresentationmodechanged',
+          handlePiPChange
+        );
+      }
+
+      // 标准 PiP 事件监听
+      video.addEventListener('enterpictureinpicture', handlePiPChange);
+      video.addEventListener('leavepictureinpicture', handlePiPChange);
+
+      return () => {
+        // @ts-ignore
+        video.removeEventListener(
+          'webkitpresentationmodechanged',
+          handlePiPChange
+        );
+        video.removeEventListener('enterpictureinpicture', handlePiPChange);
+        video.removeEventListener('leavepictureinpicture', handlePiPChange);
+      };
+    }
+  }, [isPiPSupported, artPlayerRef.current]);
+
   // 画中画切换
   const handleTogglePictureInPicture = async () => {
     try {
@@ -356,32 +423,69 @@ function PlayPageClient() {
       if (!p || !p.video) return;
       const video = p.video as HTMLVideoElement;
 
-      // Safari 专用接口
+      // iOS Safari 专用接口 - 优先使用
       // @ts-ignore
       if (typeof video.webkitSetPresentationMode === 'function') {
         // @ts-ignore
-        const mode = video.webkitPresentationMode;
+        const currentMode = video.webkitPresentationMode;
+        const targetMode =
+          currentMode === 'picture-in-picture'
+            ? 'inline'
+            : 'picture-in-picture';
+
         // @ts-ignore
-        video.webkitSetPresentationMode(
-          mode === 'picture-in-picture' ? 'inline' : 'picture-in-picture'
-        );
+        video.webkitSetPresentationMode(targetMode);
+
+        // 提供用户反馈
+        const notice = (p as any).notice;
+        if (notice && typeof notice.show === 'function') {
+          notice.show(
+            targetMode === 'picture-in-picture' ? '进入画中画' : '退出画中画'
+          );
+        }
         return;
       }
 
+      // 标准 PiP API
       if (document.pictureInPictureEnabled) {
         if (document.pictureInPictureElement) {
           await (document as any).exitPictureInPicture?.();
+          const notice = (p as any).notice;
+          if (notice && typeof notice.show === 'function') {
+            notice.show('退出画中画');
+          }
         } else {
+          // 确保视频已准备好
           if (video.readyState < 2) {
-            await new Promise((resolve) => {
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error('视频加载超时'));
+              }, 5000);
+
               const onCanPlay = () => {
+                clearTimeout(timeout);
                 video.removeEventListener('canplay', onCanPlay);
+                video.removeEventListener('error', onError);
                 resolve(null);
               };
+
+              const onError = () => {
+                clearTimeout(timeout);
+                video.removeEventListener('canplay', onCanPlay);
+                video.removeEventListener('error', onError);
+                reject(new Error('视频加载失败'));
+              };
+
               video.addEventListener('canplay', onCanPlay, { once: true });
+              video.addEventListener('error', onError, { once: true });
             });
           }
+
           await (video as any).requestPictureInPicture?.();
+          const notice = (p as any).notice;
+          if (notice && typeof notice.show === 'function') {
+            notice.show('进入画中画');
+          }
         }
       } else {
         const notice = (p as any).notice;
@@ -390,10 +494,11 @@ function PlayPageClient() {
         }
       }
     } catch (e) {
+      console.warn('画中画切换失败:', e);
       const p = artPlayerRef.current as any;
       const notice = p?.notice;
       if (notice && typeof notice.show === 'function') {
-        notice.show('切换画中画失败');
+        notice.show('切换画中画失败，请重试');
       }
     }
   };
@@ -1705,7 +1810,7 @@ function PlayPageClient() {
         theme: '#22c55e',
         lang: 'zh-cn',
         hotkey: false,
-        pip: true,
+        pip: isPiPSupported, // 根据支持情况动态设置
         type: 'm3u8',
         customType: {
           m3u8: function (video: HTMLVideoElement, url: string) {
@@ -2535,13 +2640,20 @@ function PlayPageClient() {
 
                 {/* 自定义简易控制栏 */}
                 <div className='absolute bottom-0 right-0 z-[550] flex items-center gap-2 bg-black/40 backdrop-blur-sm px-2 py-1 rounded-tl-md'>
-                  <button
-                    onClick={handleTogglePictureInPicture}
-                    className='text-white/90 hover:text-white text-sm px-2 py-1'
-                    aria-label='画中画'
-                  >
-                    画中画
-                  </button>
+                  {isPiPSupported && (
+                    <button
+                      onClick={handleTogglePictureInPicture}
+                      className={`text-sm px-2 py-1 transition-colors ${
+                        isPiPActive
+                          ? 'text-green-400 hover:text-green-300'
+                          : 'text-white/90 hover:text-white'
+                      }`}
+                      aria-label={isPiPActive ? '退出画中画' : '进入画中画'}
+                      title={isPiPActive ? '退出画中画' : '进入画中画'}
+                    >
+                      {isPiPActive ? '退出画中画' : '画中画'}
+                    </button>
+                  )}
                   <button
                     onClick={handleSpeedCycle}
                     className='text-white/90 hover:text-white text-sm px-2 py-1'
