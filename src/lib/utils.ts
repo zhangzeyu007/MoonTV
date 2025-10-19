@@ -209,11 +209,24 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
       // 监听hls.js错误
       hls.on(Hls.Events.ERROR, (event: any, data: any) => {
         console.error('HLS错误:', data);
+        // 增强错误处理，即使致命错误也尝试恢复
         if (data.fatal) {
+          console.warn('检测到HLS致命错误，尝试恢复...');
+          // 不立即销毁，而是尝试重新加载
           clearTimeout(timeout);
-          hls.destroy();
-          video.remove();
-          reject(new Error(`HLS播放失败: ${data.type}`));
+
+          // 增加重试机制
+          setTimeout(() => {
+            try {
+              hls.startLoad();
+              console.log('HLS重新加载尝试成功');
+            } catch (recoverError) {
+              console.error('HLS恢复失败:', recoverError);
+              hls.destroy();
+              video.remove();
+              reject(new Error(`HLS播放失败: ${data.type}`));
+            }
+          }, 1000);
         }
       });
 

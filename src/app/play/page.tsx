@@ -262,6 +262,9 @@ function PlayPageClient() {
       if (artPlayerRef.current && !artPlayerRef.current.paused) {
         artPlayerRef.current.pause();
       }
+
+      // 增加错误计数以触发恢复机制
+      setHlsErrorCount((prev) => prev + 1);
     };
 
     // 监听网络状态变化
@@ -1664,6 +1667,14 @@ function PlayPageClient() {
       'event.target is undefined',
       'path.push is not a function',
       'parentNode is undefined',
+      // 添加更多可能导致播放器崩溃的错误模式
+      'Failed to execute',
+      'Illegal invocation',
+      'undefined is not a function',
+      'is not iterable',
+      'Maximum call stack size exceeded',
+      'AbortError',
+      'The operation was aborted',
     ];
 
     const shouldSilenceError = (message: string) => {
@@ -1776,10 +1787,18 @@ function PlayPageClient() {
                     value: function () {
                       try {
                         const path = [];
-                        let current = this.target;
-                        while (current && current.nodeType) {
+                        let current = this?.target;
+                        // 添加安全检查防止循环
+                        let iterations = 0;
+                        const maxIterations = 100;
+                        while (
+                          current &&
+                          current.nodeType &&
+                          iterations < maxIterations
+                        ) {
                           path.push(current);
                           current = current.parentNode || current.host;
+                          iterations++;
                         }
                         return path;
                       } catch (e) {
@@ -2196,7 +2215,7 @@ function PlayPageClient() {
 
             // 错误重试计数器
             let errorRetryCount = 0;
-            const maxRetries = 3;
+            const maxRetries = 5; // 增加重试次数以提高稳定性
 
             hls.on(Hls.Events.ERROR, function (event: any, data: any) {
               console.error('HLS Error:', event, data);
@@ -2244,8 +2263,8 @@ function PlayPageClient() {
                       // 使用指数退避延迟重试
                       const retryDelay = Math.min(
                         1000 * Math.pow(2, errorRetryCount - 1),
-                        5000
-                      );
+                        10000
+                      ); // 增加最大重试延迟到10秒
                       setTimeout(() => {
                         hls.startLoad();
                       }, retryDelay);
@@ -2461,6 +2480,27 @@ function PlayPageClient() {
       artPlayerRef.current.on(
         'error',
         safeguardEventHandler((err: any) => {
+          // 特别处理AbortError，防止播放器卡死
+          if (
+            err?.name === 'AbortError' ||
+            (err?.message && err.message.includes('AbortError'))
+          ) {
+            console.warn('检测到AbortError，尝试恢复播放状态');
+            // 重置播放器状态
+            stuckCountRef.current = 0;
+            isSeekingRef.current = false;
+            seekCooldownUntilRef.current = 0;
+
+            // 尝试重新播放
+            setTimeout(() => {
+              if (artPlayerRef.current && artPlayerRef.current.play) {
+                artPlayerRef.current.play().catch((playError: any) => {
+                  console.warn('AbortError后重新播放失败:', playError);
+                });
+              }
+            }, 100);
+            return;
+          }
           // 提供更详细的错误信息
           let errorMessage = '播放器错误: ';
           if (err instanceof Error) {
@@ -2542,6 +2582,11 @@ function PlayPageClient() {
           setTimeout(() => {
             saveCurrentPlayProgress(true);
           }, 100);
+
+          // 网络状态检查，如果网络不稳定则增加冷却时间
+          if (networkStatus === 'unstable' || networkStatus === 'offline') {
+            seekCooldownUntilRef.current = Date.now() + 3000; // 网络不稳定时增加到3秒冷却
+          }
         })
       );
 
@@ -2680,7 +2725,9 @@ function PlayPageClient() {
                 readyState >= 3 && // 有足够数据可播放
                 !isSeekingRef.current && // 确保不在拖拽中
                 isPageVisible && // 页面可见
-                totalBuffered > 5; // 总缓冲时长超过5秒
+                totalBuffered > 5 && // 总缓冲时长超过5秒
+                !player?.seeking && // 确保不在seeking状态
+                networkStatus !== 'offline'; // 确保网络不是离线状态
 
               if (isStuck) {
                 stuckCountRef.current += 1;
@@ -2698,7 +2745,7 @@ function PlayPageClient() {
 
                 // 根据网络质量调整恢复策略
                 const maxStuckCount =
-                  networkQualityRef.current === 'poor' ? 3 : 4;
+                  networkQualityRef.current === 'poor' ? 5 : 6; // 增加最大卡死检测次数
 
                 if (stuckCountRef.current >= maxStuckCount) {
                   // 根据网络质量调整触发阈值
@@ -2782,7 +2829,7 @@ function PlayPageClient() {
                       }
                     }
                     // 策略 5: 强制重新初始化HLS
-                    else if (stuckCountRef.current >= maxStuckCount + 4) {
+                    else if (stuckCountRef.current === maxStuckCount + 4) {
                       console.log('🔥 应用强制HLS重初始化策略');
                       if (hls) {
                         try {
@@ -2963,6 +3010,18 @@ function PlayPageClient() {
 
       console.error('创建播放器失败:', err);
       setError('播放器初始化失败');
+
+      // 增强错误处理，尝试重新初始化
+      setTimeout(() => {
+        if (!loading && videoUrl && artRef.current) {
+          console.log('尝试重新初始化播放器...');
+          // 重置播放器引用
+          artPlayerRef.current = null;
+          // 触发重新渲染
+          setVideoUrl('');
+          setTimeout(() => setVideoUrl(videoUrl), 100);
+        }
+      }, 2000);
     } finally {
       // 恢复原始的错误处理器
       window.onerror = originalError;
@@ -2983,10 +3042,25 @@ function PlayPageClient() {
         clearTimeout(playbackRecoveryRef.current);
       }
 
-      // 恢复原始的 console.error
-      if (typeof window !== 'undefined') {
-        // 这里不需要恢复，因为每次创建播放器时都会重新设置
+      // 确保播放器完全销毁
+      if (artPlayerRef.current) {
+        try {
+          // 销毁HLS实例
+          if (artPlayerRef.current.video && artPlayerRef.current.video.hls) {
+            artPlayerRef.current.video.hls.destroy();
+          }
+          // 销毁播放器
+          artPlayerRef.current.destroy();
+        } catch (e) {
+          console.warn('播放器销毁失败:', e);
+        } finally {
+          artPlayerRef.current = null;
+        }
       }
+
+      // 恢复原始的错误处理器
+      window.onerror = null;
+      window.onunhandledrejection = null;
     };
   }, []);
 
