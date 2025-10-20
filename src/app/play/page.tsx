@@ -1783,32 +1783,88 @@ function PlayPageClient() {
               if (event && typeof event === 'object') {
                 // 为事件对象提供安全的composedPath方法（如果缺失）
                 if (typeof event.composedPath !== 'function') {
-                  Object.defineProperty(event, 'composedPath', {
-                    value: function () {
-                      try {
-                        const path = [];
-                        let current = this?.target;
-                        // 添加安全检查防止循环
-                        let iterations = 0;
-                        const maxIterations = 100;
-                        while (
-                          current &&
-                          current.nodeType &&
-                          iterations < maxIterations
-                        ) {
-                          path.push(current);
-                          current = current.parentNode || current.host;
-                          iterations++;
-                        }
-                        return path;
-                      } catch (e) {
+                  // 更安全的实现，确保不会因为undefined导致错误
+                  const safeComposedPath = function (this: any) {
+                    try {
+                      // 检查this是否存在且有效
+                      if (!this || typeof this !== 'object') {
                         return [];
                       }
-                    },
-                    writable: false,
-                    enumerable: false,
-                    configurable: true,
-                  });
+
+                      const path = [];
+                      let current = this.target;
+
+                      // 添加安全检查防止循环和访问错误
+                      let iterations = 0;
+                      const maxIterations = 100;
+
+                      // 确保current存在且有nodeType属性
+                      while (
+                        current &&
+                        typeof current === 'object' &&
+                        current.nodeType &&
+                        iterations < maxIterations
+                      ) {
+                        path.push(current);
+
+                        // 更安全的父节点访问
+                        const nextParent =
+                          current.parentNode ||
+                          current.host ||
+                          current.parentElement;
+
+                        // 检查是否存在循环引用或无效引用
+                        if (
+                          !nextParent ||
+                          nextParent === current ||
+                          nextParent === window ||
+                          nextParent === document
+                        ) {
+                          break;
+                        }
+
+                        current = nextParent;
+                        iterations++;
+                      }
+
+                      // 添加document和window到路径末尾（如果不在路径中）
+                      if (path.length > 0) {
+                        if (
+                          typeof document !== 'undefined' &&
+                          !path.includes(document)
+                        ) {
+                          path.push(document);
+                        }
+                        if (
+                          typeof window !== 'undefined' &&
+                          !path.includes(window)
+                        ) {
+                          path.push(window);
+                        }
+                      }
+
+                      return path;
+                    } catch (e) {
+                      // 在任何错误情况下都返回空数组而不是抛出异常
+                      return [];
+                    }
+                  };
+
+                  // 安全地定义composedPath属性
+                  try {
+                    Object.defineProperty(event, 'composedPath', {
+                      value: safeComposedPath,
+                      writable: false,
+                      enumerable: false,
+                      configurable: true,
+                    });
+                  } catch (defineError) {
+                    // 如果无法定义属性，静默处理
+                    console.warn(
+                      '无法为事件对象定义composedPath方法:',
+                      defineError
+                    );
+                  }
                 }
               }
 
@@ -1864,8 +1920,13 @@ function PlayPageClient() {
         // 安全的composedPath实现
         const safeComposedPathImpl = function (this: Event) {
           try {
+            // 检查this是否存在且有效
+            if (!this || typeof this !== 'object') {
+              return [];
+            }
+
             const path = [];
-            let current = this?.target as any;
+            let current = this.target as any;
 
             // 更严格的类型检查
             if (!current || typeof current !== 'object') {
@@ -1912,7 +1973,7 @@ function PlayPageClient() {
           } catch (error) {
             // 完全降级，返回基础路径
             try {
-              const target = this?.target;
+              const target = (this as any)?.target;
               return target ? [target] : [];
             } catch (e) {
               return [];
@@ -1923,34 +1984,169 @@ function PlayPageClient() {
         // 检查是否需要添加或替换 composedPath 方法
         if (typeof originalComposedPath !== 'function') {
           // 不存在composedPath方法，添加实现
-          Object.defineProperty(Event.prototype, 'composedPath', {
-            value: safeComposedPathImpl,
-            writable: false,
-            enumerable: false, // 确保不影响for...in循环
-            configurable: true,
-          });
-          console.log('✅ 已添加 Event.prototype.composedPath 兼容性实现');
+          try {
+            Object.defineProperty(Event.prototype, 'composedPath', {
+              value: safeComposedPathImpl,
+              writable: false,
+              enumerable: false, // 确保不影响for...in循环
+              configurable: true,
+            });
+            console.log('✅ 已添加 Event.prototype.composedPath 兼容性实现');
+          } catch (defineError) {
+            console.warn(
+              '无法添加Event.prototype.composedPath兼容性实现:',
+              defineError
+            );
+          }
         } else {
           // 已存在，包装原始方法确保安全性
-          Object.defineProperty(Event.prototype, 'composedPath', {
-            value: function () {
-              try {
-                // 尝试调用原始方法
-                const result = originalComposedPath.call(this);
-                return Array.isArray(result) ? result : [];
-              } catch (error) {
-                // 原始方法失败，使用降级实现
-                console.warn('🔄 composedPath 原生实现失败，使用安全降级');
-                return safeComposedPathImpl.call(this);
-              }
-            },
-            writable: false,
-            enumerable: false,
-            configurable: true,
-          });
-          console.log('✅ 已增强 Event.prototype.composedPath 安全性');
+          try {
+            Object.defineProperty(Event.prototype, 'composedPath', {
+              value: function () {
+                try {
+                  // 尝试调用原始方法
+                  const result = originalComposedPath.call(this);
+                  return Array.isArray(result) ? result : [];
+                } catch (error) {
+                  // 原始方法失败，使用降级实现
+                  console.warn('🔄 composedPath 原生实现失败，使用安全降级');
+                  return safeComposedPathImpl.call(this);
+                }
+              },
+              writable: false,
+              enumerable: false,
+              configurable: true,
+            });
+            console.log('✅ 已增强 Event.prototype.composedPath 安全性');
+          } catch (wrapError) {
+            console.warn(
+              '无法包装Event.prototype.composedPath方法:',
+              wrapError
+            );
+          }
         }
       }
+
+      // 定义一个更安全的事件处理包装器，专门用于处理可能频繁触发的事件
+      const createRobustEventHandler = (
+        handler: (e: any) => void,
+        eventName = ''
+      ) => {
+        return function (this: any, event: any) {
+          try {
+            // 基础事件对象验证
+            if (!event || typeof event !== 'object') {
+              console.warn(`事件处理警告: 接收到无效的事件对象 (${eventName})`);
+              return;
+            }
+
+            // 为事件对象提供安全的composedPath方法（如果缺失）
+            if (typeof event.composedPath !== 'function') {
+              // 创建更安全的composedPath实现
+              const safeComposedPath = function (this: any) {
+                try {
+                  // 检查this是否存在且有效
+                  if (!this || typeof this !== 'object') {
+                    return [];
+                  }
+
+                  const path: any[] = [];
+                  let current = this.target;
+
+                  // 添加安全检查防止循环和访问错误
+                  let iterations = 0;
+                  const maxIterations = 100;
+
+                  // 确保current存在且有nodeType属性
+                  while (
+                    current &&
+                    typeof current === 'object' &&
+                    current.nodeType &&
+                    iterations < maxIterations
+                  ) {
+                    // 避免重复添加同一个元素
+                    if (!path.includes(current)) {
+                      path.push(current);
+                    }
+
+                    // 更安全的父节点访问
+                    const nextParent =
+                      current.parentNode ||
+                      current.host ||
+                      current.parentElement;
+
+                    // 检查是否存在循环引用或无效引用
+                    if (
+                      !nextParent ||
+                      nextParent === current ||
+                      nextParent === window ||
+                      nextParent === document
+                    ) {
+                      break;
+                    }
+
+                    current = nextParent;
+                    iterations++;
+                  }
+
+                  // 添加document和window到路径末尾（如果不在路径中）
+                  if (path.length > 0) {
+                    if (
+                      typeof document !== 'undefined' &&
+                      !path.includes(document)
+                    ) {
+                      path.push(document);
+                    }
+                    if (
+                      typeof window !== 'undefined' &&
+                      !path.includes(window)
+                    ) {
+                      path.push(window);
+                    }
+                  }
+
+                  return path;
+                } catch (e) {
+                  // 在任何错误情况下都返回空数组而不是抛出异常
+                  console.warn('composedPath执行错误，返回空数组:', e);
+                  return [];
+                }
+              };
+
+              // 安全地定义composedPath属性
+              try {
+                Object.defineProperty(event, 'composedPath', {
+                  value: safeComposedPath,
+                  writable: false,
+                  enumerable: false,
+                  configurable: true,
+                });
+              } catch (defineError) {
+                // 如果无法定义属性，使用替代方案
+                console.warn(
+                  '无法为事件对象定义composedPath方法，使用替代方案:',
+                  defineError
+                );
+                // 为事件对象添加一个安全的替代方法
+                (event as any).safeComposedPath = safeComposedPath;
+              }
+            }
+
+            // 调用原始处理器
+            return handler.call(this, event);
+          } catch (error) {
+            const errorMessage = String((error as any)?.message || error || '');
+            if (shouldSilenceError(errorMessage)) {
+              console.warn(
+                `🔇 事件处理中的兼容性错误已静默 (${eventName}):`,
+                errorMessage
+              );
+            } else {
+              console.error(`❌ 事件处理错误 (${eventName}):`, error);
+            }
+          }
+        };
+      };
 
       // 增强的事件安全包装器函数 (备用)
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -1966,34 +2162,102 @@ function PlayPageClient() {
             if (event && typeof event === 'object') {
               // 确保 composedPath 方法存在且安全
               if (typeof event.composedPath !== 'function') {
-                Object.defineProperty(event, 'composedPath', {
-                  value: function () {
-                    try {
-                      const path = [];
-                      let current = this.target;
-                      while (current && current.nodeType) {
-                        path.push(current);
-                        current = current.parentNode || current.host;
-                      }
-                      return path;
-                    } catch (e) {
+                // 更安全的实现
+                const safeComposedPath = function (this: any) {
+                  try {
+                    // 检查this是否存在且有效
+                    if (!this || typeof this !== 'object') {
                       return [];
                     }
-                  },
-                  writable: false,
-                  enumerable: false,
-                  configurable: true,
-                });
+
+                    const path = [];
+                    let current = this.target;
+
+                    // 添加安全检查防止循环和访问错误
+                    let iterations = 0;
+                    const maxIterations = 100;
+
+                    // 确保current存在且有nodeType属性
+                    while (
+                      current &&
+                      typeof current === 'object' &&
+                      current.nodeType &&
+                      iterations < maxIterations
+                    ) {
+                      path.push(current);
+
+                      // 更安全的父节点访问
+                      const nextParent =
+                        current.parentNode ||
+                        current.host ||
+                        current.parentElement;
+
+                      // 检查是否存在循环引用或无效引用
+                      if (
+                        !nextParent ||
+                        nextParent === current ||
+                        nextParent === window ||
+                        nextParent === document
+                      ) {
+                        break;
+                      }
+
+                      current = nextParent;
+                      iterations++;
+                    }
+
+                    // 添加document和window到路径末尾（如果不在路径中）
+                    if (path.length > 0) {
+                      if (
+                        typeof document !== 'undefined' &&
+                        !path.includes(document)
+                      ) {
+                        path.push(document);
+                      }
+                      if (
+                        typeof window !== 'undefined' &&
+                        !path.includes(window)
+                      ) {
+                        path.push(window);
+                      }
+                    }
+
+                    return path;
+                  } catch (e) {
+                    // 在任何错误情况下都返回空数组而不是抛出异常
+                    return [];
+                  }
+                };
+
+                // 安全地定义composedPath属性
+                try {
+                  Object.defineProperty(event, 'composedPath', {
+                    value: safeComposedPath,
+                    writable: false,
+                    enumerable: false,
+                    configurable: true,
+                  });
+                } catch (defineError) {
+                  // 如果无法定义属性，静默处理
+                  console.warn(
+                    '无法为事件对象定义composedPath方法:',
+                    defineError
+                  );
+                }
               }
 
               // 确保target属性安全
               if (!event.target && event.currentTarget) {
-                Object.defineProperty(event, 'target', {
-                  value: event.currentTarget,
-                  writable: false,
-                  enumerable: false,
-                  configurable: true,
-                });
+                try {
+                  Object.defineProperty(event, 'target', {
+                    value: event.currentTarget,
+                    writable: false,
+                    enumerable: false,
+                    configurable: true,
+                  });
+                } catch (defineError) {
+                  console.warn('无法为事件对象定义target属性:', defineError);
+                }
               }
             }
 
@@ -2426,23 +2690,23 @@ function PlayPageClient() {
       // 监听播放器事件 - 使用增强的安全包装器
       artPlayerRef.current.on(
         'ready',
-        safeguardEventHandler((_e: any) => {
+        createRobustEventHandler((_e: any) => {
           setError(null);
           console.log('🎯 播放器就绪');
-        })
+        }, 'ready')
       );
 
       artPlayerRef.current.on(
         'video:volumechange',
-        safeguardEventHandler((_e: any) => {
+        createRobustEventHandler((_e: any) => {
           lastVolumeRef.current = artPlayerRef.current.volume;
-        })
+        }, 'volumechange')
       );
 
       // 监听视频可播放事件，这时恢复播放进度更可靠
       artPlayerRef.current.on(
         'video:canplay',
-        safeguardEventHandler((_e: any) => {
+        createRobustEventHandler((_e: any) => {
           // 若存在需要恢复的播放进度，则跳转
           if (resumeTimeRef.current && resumeTimeRef.current > 0) {
             try {
@@ -2474,12 +2738,12 @@ function PlayPageClient() {
 
           // 隐藏换源加载状态
           setIsVideoLoading(false);
-        })
+        }, 'canplay')
       );
 
       artPlayerRef.current.on(
         'error',
-        safeguardEventHandler((err: any) => {
+        createRobustEventHandler((err: any) => {
           // 特别处理AbortError，防止播放器卡死
           if (
             err?.name === 'AbortError' ||
@@ -2545,13 +2809,13 @@ function PlayPageClient() {
           if (artPlayerRef.current && artPlayerRef.current.currentTime > 0) {
             return;
           }
-        })
+        }, 'error')
       );
 
       // 监听视频播放结束事件，自动播放下一集
       artPlayerRef.current.on(
         'video:ended',
-        safeguardEventHandler((_e: any) => {
+        createRobustEventHandler((_e: any) => {
           const d = detailRef.current;
           const idx = currentEpisodeIndexRef.current;
           if (d && d.episodes && idx < d.episodes.length - 1) {
@@ -2559,22 +2823,22 @@ function PlayPageClient() {
               setCurrentEpisodeIndex(idx + 1);
             }, 1000);
           }
-        })
+        }, 'ended')
       );
 
       // 监听拖拽开始事件
       artPlayerRef.current.on(
         'video:seeking',
-        safeguardEventHandler((_e: any) => {
+        createRobustEventHandler((_e: any) => {
           isSeekingRef.current = true;
           // 降低日志噪声与主线程压力
-        })
+        }, 'seeking')
       );
 
       // 监听拖拽结束事件
       artPlayerRef.current.on(
         'video:seeked',
-        safeguardEventHandler((_e: any) => {
+        createRobustEventHandler((_e: any) => {
           isSeekingRef.current = false;
           // 设置拖拽后的短冷却窗口，期间跳过卡死检测与频繁保存
           seekCooldownUntilRef.current = Date.now() + 800; // 0.8s 冷却
@@ -2587,12 +2851,12 @@ function PlayPageClient() {
           if (networkStatus === 'unstable' || networkStatus === 'offline') {
             seekCooldownUntilRef.current = Date.now() + 3000; // 网络不稳定时增加到3秒冷却
           }
-        })
+        }, 'seeked')
       );
 
       artPlayerRef.current.on(
         'video:timeupdate',
-        safeguardEventHandler((_e: any) => {
+        createRobustEventHandler((_e: any) => {
           // 额外的安全检查
           if (!artPlayerRef.current) {
             return;
@@ -2964,26 +3228,26 @@ function PlayPageClient() {
             saveCurrentPlayProgress(); // 使用防抖机制
             lastSaveTimeRef.current = now;
           }
-        })
+        }, 'timeupdate')
       );
 
       artPlayerRef.current.on(
         'pause',
-        safeguardEventHandler((_e: any) => {
+        createRobustEventHandler((_e: any) => {
           saveCurrentPlayProgress(true); // 暂停时立即保存
           // 重置卡死计数器
           stuckCountRef.current = 0;
-        })
+        }, 'pause')
       );
 
       // 添加播放状态监控
       artPlayerRef.current.on(
         'play',
-        safeguardEventHandler((_e: any) => {
+        createRobustEventHandler((_e: any) => {
           // 重置卡死计数器
           stuckCountRef.current = 0;
           lastPlayTimeRef.current = artPlayerRef.current?.currentTime || 0;
-        })
+        }, 'play')
       );
 
       if (artPlayerRef.current?.video) {
