@@ -13,7 +13,7 @@ interface Position {
 }
 
 const FloatingToggleButton = () => {
-  const { isBottomNavVisible, toggleBottomNav } = useNavigation();
+  const { isMobileSidebarVisible, toggleMobileSidebar } = useNavigation();
   const [position, setPosition] = useState<Position>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [isPendingDrag, setIsPendingDrag] = useState(false);
@@ -329,10 +329,10 @@ const FloatingToggleButton = () => {
     (_e: React.MouseEvent) => {
       // 只有在没有移动的情况下才触发点击
       if (!hasMoved && !isDragging) {
-        toggleBottomNav();
+        toggleMobileSidebar();
       }
     },
-    [hasMoved, isDragging, toggleBottomNav]
+    [hasMoved, isDragging, toggleMobileSidebar]
   );
 
   return (
@@ -356,9 +356,9 @@ const FloatingToggleButton = () => {
         top: `${position.y}px`,
         transform: isDragging ? 'scale(1.1)' : undefined,
       }}
-      aria-label={isBottomNavVisible ? '隐藏底部导航' : '显示底部导航'}
+      aria-label={isMobileSidebarVisible ? '隐藏侧边栏' : '显示侧边栏'}
     >
-      {isBottomNavVisible ? (
+      {isMobileSidebarVisible ? (
         <X className='w-6 h-6' />
       ) : (
         <Menu className='w-6 h-6' />

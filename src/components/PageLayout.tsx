@@ -3,6 +3,7 @@ import FloatingToggleButton from './FloatingToggleButton';
 import { LogoutButton } from './LogoutButton';
 import MobileBottomNav from './MobileBottomNav';
 import MobileHeader from './MobileHeader';
+import MobileSidebar from './MobileSidebar'; // 新增导入
 import { useNavigation } from './NavigationProvider';
 import { SettingsButton } from './SettingsButton';
 import Sidebar from './Sidebar';
@@ -14,7 +15,8 @@ interface PageLayoutProps {
 }
 
 const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
-  const { isBottomNavVisible } = useNavigation();
+  const { isBottomNavVisible, isMobileSidebarVisible, toggleMobileSidebar } =
+    useNavigation(); // 更新解构
 
   return (
     <div className='w-full min-h-screen'>
@@ -58,13 +60,19 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
         </div>
       </div>
 
-      {/* 移动端底部导航 */}
+      {/* 移动端底部导航 - 保留作为后备，但默认隐藏 */}
       <div className='md:hidden'>
         <MobileBottomNav
           activePath={activePath}
-          isVisible={isBottomNavVisible}
+          isVisible={false} // 默认隐藏
         />
       </div>
+
+      {/* 移动端侧边栏 */}
+      <MobileSidebar
+        isVisible={isMobileSidebarVisible}
+        onClose={toggleMobileSidebar}
+      />
 
       {/* 移动端悬浮按钮 */}
       <FloatingToggleButton />

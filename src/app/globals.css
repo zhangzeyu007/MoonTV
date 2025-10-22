@@ -198,3 +198,17 @@ div[data-media-provider] video {
     display: none !important;
   }
 }
+
+/* 移动端侧边栏样式 */
+@media (max-width: 767px) {
+  /* 防止侧边栏显示时背景滚动 */
+  .mobile-sidebar-open {
+    overflow: hidden;
+  }
+
+  /* 侧边栏打开时的背景模糊效果 */
+  .mobile-sidebar-backdrop {
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+  }
+}
