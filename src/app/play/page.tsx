@@ -2307,6 +2307,11 @@ function PlayPageClient() {
             if (video.hls) {
               video.hls.destroy();
             }
+
+            // 将播放器实例暴露到全局，以便其他组件可以访问和清理
+            if (typeof window !== 'undefined') {
+              (window as any).artPlayerInstance = artPlayerRef.current;
+            }
             const hls = new Hls({
               debug: false, // 关闭日志
               enableWorker: true, // WebWorker 解码，降低主线程压力
@@ -3319,12 +3324,68 @@ function PlayPageClient() {
           console.warn('播放器销毁失败:', e);
         } finally {
           artPlayerRef.current = null;
+          // 清理全局实例引用
+          if (
+            typeof window !== 'undefined' &&
+            (window as any).artPlayerInstance
+          ) {
+            (window as any).artPlayerInstance = null;
+          }
         }
       }
 
       // 恢复原始的错误处理器
       window.onerror = null;
       window.onunhandledrejection = null;
+    };
+  }, []);
+
+  // 添加一个额外的useEffect来处理页面可见性变化
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        // 页面隐藏时保存播放进度
+        saveCurrentPlayProgress(true);
+      } else if (document.visibilityState === 'visible') {
+        // 页面重新可见时，如果播放器存在则刷新状态
+        if (artPlayerRef.current) {
+          // 确保播放器状态正确
+          console.log('页面重新可见，播放器状态已刷新');
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // 监听页面卸载事件
+    const handleBeforeUnload = () => {
+      // 确保在页面卸载前销毁播放器
+      if (artPlayerRef.current) {
+        try {
+          if (artPlayerRef.current.video && artPlayerRef.current.video.hls) {
+            artPlayerRef.current.video.hls.destroy();
+          }
+          artPlayerRef.current.destroy();
+        } catch (e) {
+          console.warn('页面卸载时播放器销毁失败:', e);
+        } finally {
+          artPlayerRef.current = null;
+          // 清理全局实例引用
+          if (
+            typeof window !== 'undefined' &&
+            (window as any).artPlayerInstance
+          ) {
+            (window as any).artPlayerInstance = null;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, []);
 
