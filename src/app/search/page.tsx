@@ -622,7 +622,7 @@ function SearchPageClient() {
             ];
             const values = scrollMethods.map((m) => m.value);
             const current = Math.max(...values);
-            const delta = current - lastPos;
+            const _delta = current - lastPos;
             lastPos = current;
 
             lastLogTs = now;

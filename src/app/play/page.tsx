@@ -23,7 +23,11 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
-import { getVideoResolutionFromM3u8 } from '@/lib/utils';
+import {
+  getVideoResolutionFromM3u8,
+  isSafariBrowser,
+  isWebKitBrowser,
+} from '@/lib/utils';
 
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
@@ -183,7 +187,7 @@ function PlayPageClient() {
   const lastNetworkCheckRef = useRef<number>(0);
 
   // 网络质量监测
-  const [networkQuality, setNetworkQuality] = useState<
+  const [_networkQuality, setNetworkQuality] = useState<
     'excellent' | 'good' | 'fair' | 'poor'
   >('good');
   const networkQualityRef = useRef<'excellent' | 'good' | 'fair' | 'poor'>(
@@ -521,7 +525,7 @@ function PlayPageClient() {
   };
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleVolumeChange = (delta: number) => {
+  const _handleVolumeChange = (delta: number) => {
     const p = artPlayerRef.current;
     if (!p) return;
     const next = Math.max(0, Math.min(1, (p.volume || 0) + delta));
@@ -2196,7 +2200,7 @@ function PlayPageClient() {
 
     // 保存原始的 addEventListener (备用)
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const originalAddEventListener = EventTarget.prototype.addEventListener;
+    const _originalAddEventListener = EventTarget.prototype.addEventListener;
 
     try {
       // 临时增强的事件监听器包装器 - 仅在播放器初始化期间使用
@@ -2454,12 +2458,12 @@ function PlayPageClient() {
 
       // 增强的事件安全包装器函数 (备用)
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const createSafeEventHandler = (handler: (e: any) => void) => {
+      const _createSafeEventHandler = (handler: (e: any) => void) => {
         return playerEventWrapper.wrapEventListener(handler);
       };
 
       // 添加额外的事件兜底包装器
-      const safeguardEventHandler = (originalHandler: (e: any) => void) => {
+      const _safeguardEventHandler = (originalHandler: (e: any) => void) => {
         return function (this: any, event: any) {
           try {
             // 为事件对象提供安全保护
@@ -2704,7 +2708,7 @@ function PlayPageClient() {
             const bandwidthHistory: number[] = [];
             let lastBufferAdjustment = 0;
 
-            hls.on(Hls.Events.FRAG_LOADED, function (event: any, data: any) {
+            hls.on(Hls.Events.FRAG_LOADED, function (_event: any, _data: any) {
               // 记录带宽信息用于动态调整
               if (hls.bandwidthEstimate > 0) {
                 bandwidthHistory.push(hls.bandwidthEstimate);
@@ -2788,7 +2792,13 @@ function PlayPageClient() {
 
             // 错误重试计数器
             let errorRetryCount = 0;
-            const maxRetries = 5; // 增加重试次数以提高稳定性
+            const maxRetries = 3; // 减少重试次数，避免过度干预
+
+            // 检测浏览器类型
+            const isSafari = isSafariBrowser();
+            const isWebKit = isWebKitBrowser();
+
+            console.log(`浏览器检测: Safari=${isSafari}, WebKit=${isWebKit}`);
 
             hls.on(Hls.Events.ERROR, function (event: any, data: any) {
               console.error('HLS Error:', event, data);
@@ -2796,13 +2806,12 @@ function PlayPageClient() {
               // 增加错误计数
               setHlsErrorCount((prev) => prev + 1);
 
-              // 处理非致命错误
+              // 处理非致命错误 - 所有浏览器都采用相同的轻量级处理
               if (!data.fatal) {
                 switch (data.type) {
                   case Hls.ErrorTypes.NETWORK_ERROR:
                     if (data.details === 'fragLoadTimeOut') {
                       console.log('片段加载超时，尝试重新加载...');
-                      // 对于超时错误，尝试重新加载
                       hls.startLoad();
                     } else {
                       console.log('网络错误，尝试恢复...');
@@ -2817,10 +2826,10 @@ function PlayPageClient() {
                     console.log('非致命错误，继续播放...');
                     break;
                 }
-                return; // 非致命错误处理完毕，直接返回
+                return;
               }
 
-              // 处理致命错误
+              // 处理致命错误 - 根据浏览器类型采用不同策略
               if (data.fatal) {
                 errorRetryCount++;
                 console.log(
@@ -2829,155 +2838,237 @@ function PlayPageClient() {
                   data.details
                 );
 
-                if (errorRetryCount <= maxRetries) {
-                  switch (data.type) {
-                    case Hls.ErrorTypes.NETWORK_ERROR: {
-                      console.log('致命网络错误，尝试恢复...');
-                      // 使用指数退避延迟重试
-                      const retryDelay = Math.min(
-                        1000 * Math.pow(2, errorRetryCount - 1),
-                        10000
-                      ); // 增加最大重试延迟到10秒
-                      setTimeout(() => {
-                        hls.startLoad();
-                      }, retryDelay);
-                      break;
-                    }
-                    case Hls.ErrorTypes.MEDIA_ERROR:
-                      console.log('致命媒体错误，尝试恢复...');
-                      hls.recoverMediaError();
-                      break;
-                    default:
-                      console.log('无法恢复的致命错误');
-                      hls.destroy();
-                      break;
-                  }
-                } else {
-                  console.error('达到最大重试次数，停止重试');
-                  // 在达到最大重试次数后，尝试完全重新初始化
-                  if (artPlayerRef.current) {
-                    const video = artPlayerRef.current.video;
-                    if (video) {
-                      // 销毁当前HLS实例
-                      if (video.hls) {
-                        video.hls.destroy();
-                      }
+                // Safari浏览器：减少干预，让原生HLS处理更多错误
+                if (isSafari) {
+                  console.log('Safari浏览器：采用轻量级错误处理策略');
 
-                      // 根据网络质量选择合适的配置
-                      let maxBufferLength = 60;
-                      let maxBufferSize = 100 * 1000 * 1000;
-
-                      switch (networkQualityRef.current) {
-                        case 'excellent':
-                          maxBufferLength = 120;
-                          maxBufferSize = 150 * 1000 * 1000;
-                          break;
-                        case 'good':
-                          maxBufferLength = 60;
-                          maxBufferSize = 100 * 1000 * 1000;
-                          break;
-                        case 'fair':
-                          maxBufferLength = 30;
-                          maxBufferSize = 60 * 1000 * 1000;
-                          break;
-                        case 'poor':
-                          maxBufferLength = 15;
-                          maxBufferSize = 30 * 1000 * 1000;
-                          break;
-                      }
-
-                      // 创建新的HLS实例
-                      setTimeout(() => {
-                        const newHls = new Hls({
-                          debug: false,
-                          enableWorker: true,
-                          lowLatencyMode: true,
-                          maxBufferLength: maxBufferLength,
-                          backBufferLength: 60,
-                          maxBufferSize: maxBufferSize,
-                          maxMaxBufferLength: 600,
-                          fragLoadingTimeOut: 30000,
-                          manifestLoadingTimeOut: 20000,
-                          levelLoadingTimeOut: 20000,
-                          maxLoadingDelay: 8,
-                          maxBufferHole: 2.0,
-                          highBufferWatchdogPeriod: 5,
-                          nudgeOffset: 0.2,
-                          fragLoadingMaxRetry: 6,
-                          manifestLoadingMaxRetry: 4,
-                          levelLoadingMaxRetry: 4,
-                          fragLoadingRetryDelay: 1000,
-                          manifestLoadingRetryDelay: 1500,
-                          levelLoadingRetryDelay: 1500,
-                          startFragPrefetch: true,
-                          testBandwidth: true,
-                          autoStartLoad: true,
-                          // 片段加载策略
-                          fragLoadPolicy: {
-                            default: {
-                              maxTimeToFirstByteMs: 10000,
-                              maxLoadTimeMs: 60000,
-                              timeoutRetry: {
-                                maxNumRetry: 3,
-                                retryDelayMs: 1000,
-                                maxRetryDelayMs: 8000,
-                                backoff: 'exponential',
-                              },
-                              errorRetry: {
-                                maxNumRetry: 6,
-                                retryDelayMs: 2000,
-                                maxRetryDelayMs: 15000,
-                                backoff: 'exponential',
-                              },
-                            },
-                          },
-                          // 清单加载策略
-                          manifestLoadPolicy: {
-                            default: {
-                              maxTimeToFirstByteMs: 8000,
-                              maxLoadTimeMs: 30000,
-                              timeoutRetry: {
-                                maxNumRetry: 2,
-                                retryDelayMs: 1000,
-                                maxRetryDelayMs: 5000,
-                                backoff: 'exponential',
-                              },
-                              errorRetry: {
-                                maxNumRetry: 4,
-                                retryDelayMs: 1500,
-                                maxRetryDelayMs: 10000,
-                                backoff: 'exponential',
-                              },
-                            },
-                          },
-                        });
-
-                        newHls.loadSource(videoUrl);
-                        newHls.attachMedia(video);
-                        video.hls = newHls;
-
-                        console.log('HLS实例已重新初始化');
-
-                        // 尝试恢复播放
+                  if (errorRetryCount <= 1) {
+                    // Safari只重试1次
+                    switch (data.type) {
+                      case Hls.ErrorTypes.NETWORK_ERROR:
+                        console.log('Safari: 网络错误，尝试轻量级恢复...');
                         setTimeout(() => {
-                          if (artPlayerRef.current) {
-                            // 恢复播放位置
-                            const lastCurrentTime =
-                              artPlayerRef.current.currentTime || 0;
-                            artPlayerRef.current.currentTime = lastCurrentTime;
+                          hls.startLoad();
+                        }, 2000);
+                        break;
+                      case Hls.ErrorTypes.MEDIA_ERROR:
+                        console.log('Safari: 媒体错误，尝试恢复...');
+                        hls.recoverMediaError();
+                        break;
+                      default:
+                        console.log('Safari: 无法恢复的致命错误，停止干预');
+                        // Safari不进行重新初始化，让浏览器原生处理
+                        break;
+                    }
+                  } else {
+                    console.log(
+                      'Safari: 达到最大重试次数，停止干预，让浏览器原生处理'
+                    );
+                    // Safari不进行HLS重新初始化，避免干扰原生播放
+                  }
+                }
+                // WebKit浏览器（非Safari）：中等干预
+                else if (isWebKit) {
+                  console.log('WebKit浏览器：采用中等干预策略');
 
-                            // 尝试播放
-                            artPlayerRef.current
-                              .play()
-                              .catch((playError: any) => {
-                                console.warn(
-                                  '重新初始化后播放失败:',
-                                  playError
-                                );
-                              });
-                          }
+                  if (errorRetryCount <= 2) {
+                    // WebKit重试2次
+                    switch (data.type) {
+                      case Hls.ErrorTypes.NETWORK_ERROR: {
+                        console.log('WebKit: 网络错误，尝试恢复...');
+                        const retryDelay = Math.min(
+                          1000 * errorRetryCount,
+                          5000
+                        );
+                        setTimeout(() => {
+                          hls.startLoad();
+                        }, retryDelay);
+                        break;
+                      }
+                      case Hls.ErrorTypes.MEDIA_ERROR:
+                        console.log('WebKit: 媒体错误，尝试恢复...');
+                        hls.recoverMediaError();
+                        break;
+                      default:
+                        console.log('WebKit: 无法恢复的致命错误');
+                        hls.destroy();
+                        break;
+                    }
+                  } else {
+                    console.log(
+                      'WebKit: 达到最大重试次数，尝试轻量级重新初始化'
+                    );
+                    // WebKit进行轻量级重新初始化
+                    if (artPlayerRef.current) {
+                      const video = artPlayerRef.current.video;
+                      if (video && video.hls) {
+                        video.hls.destroy();
+                        setTimeout(() => {
+                          const newHls = new Hls({
+                            debug: false,
+                            enableWorker: true,
+                            maxBufferLength: 30,
+                            backBufferLength: 30,
+                            maxBufferSize: 50 * 1000 * 1000,
+                            fragLoadingTimeOut: 20000,
+                            manifestLoadingTimeOut: 15000,
+                            levelLoadingTimeOut: 15000,
+                          });
+                          newHls.loadSource(videoUrl);
+                          newHls.attachMedia(video);
+                          video.hls = newHls;
+                          console.log('WebKit: HLS实例已轻量级重新初始化');
                         }, 1000);
-                      }, 1000);
+                      }
+                    }
+                  }
+                }
+                // 其他浏览器：保持原有逻辑但减少重试次数
+                else {
+                  console.log('其他浏览器：采用标准错误处理策略');
+
+                  if (errorRetryCount <= maxRetries) {
+                    switch (data.type) {
+                      case Hls.ErrorTypes.NETWORK_ERROR: {
+                        console.log('其他浏览器: 网络错误，尝试恢复...');
+                        const retryDelay = Math.min(
+                          1000 * Math.pow(2, errorRetryCount - 1),
+                          8000
+                        );
+                        setTimeout(() => {
+                          hls.startLoad();
+                        }, retryDelay);
+                        break;
+                      }
+                      case Hls.ErrorTypes.MEDIA_ERROR:
+                        console.log('其他浏览器: 媒体错误，尝试恢复...');
+                        hls.recoverMediaError();
+                        break;
+                      default:
+                        console.log('其他浏览器: 无法恢复的致命错误');
+                        hls.destroy();
+                        break;
+                    }
+                  } else {
+                    console.log('其他浏览器: 达到最大重试次数，尝试重新初始化');
+                    // 其他浏览器进行完整的重新初始化
+                    if (artPlayerRef.current) {
+                      const video = artPlayerRef.current.video;
+                      if (video) {
+                        if (video.hls) {
+                          video.hls.destroy();
+                        }
+
+                        // 根据网络质量选择合适的配置
+                        let maxBufferLength = 60;
+                        let maxBufferSize = 100 * 1000 * 1000;
+
+                        switch (networkQualityRef.current) {
+                          case 'excellent':
+                            maxBufferLength = 120;
+                            maxBufferSize = 150 * 1000 * 1000;
+                            break;
+                          case 'good':
+                            maxBufferLength = 60;
+                            maxBufferSize = 100 * 1000 * 1000;
+                            break;
+                          case 'fair':
+                            maxBufferLength = 30;
+                            maxBufferSize = 60 * 1000 * 1000;
+                            break;
+                          case 'poor':
+                            maxBufferLength = 15;
+                            maxBufferSize = 30 * 1000 * 1000;
+                            break;
+                        }
+
+                        setTimeout(() => {
+                          const newHls = new Hls({
+                            debug: false,
+                            enableWorker: true,
+                            lowLatencyMode: true,
+                            maxBufferLength: maxBufferLength,
+                            backBufferLength: 60,
+                            maxBufferSize: maxBufferSize,
+                            maxMaxBufferLength: 600,
+                            fragLoadingTimeOut: 30000,
+                            manifestLoadingTimeOut: 20000,
+                            levelLoadingTimeOut: 20000,
+                            maxLoadingDelay: 8,
+                            maxBufferHole: 2.0,
+                            highBufferWatchdogPeriod: 5,
+                            nudgeOffset: 0.2,
+                            fragLoadingMaxRetry: 6,
+                            manifestLoadingMaxRetry: 4,
+                            levelLoadingMaxRetry: 4,
+                            fragLoadingRetryDelay: 1000,
+                            manifestLoadingRetryDelay: 1500,
+                            levelLoadingRetryDelay: 1500,
+                            startFragPrefetch: true,
+                            testBandwidth: true,
+                            autoStartLoad: true,
+                            fragLoadPolicy: {
+                              default: {
+                                maxTimeToFirstByteMs: 10000,
+                                maxLoadTimeMs: 60000,
+                                timeoutRetry: {
+                                  maxNumRetry: 3,
+                                  retryDelayMs: 1000,
+                                  maxRetryDelayMs: 8000,
+                                  backoff: 'exponential',
+                                },
+                                errorRetry: {
+                                  maxNumRetry: 6,
+                                  retryDelayMs: 2000,
+                                  maxRetryDelayMs: 15000,
+                                  backoff: 'exponential',
+                                },
+                              },
+                            },
+                            manifestLoadPolicy: {
+                              default: {
+                                maxTimeToFirstByteMs: 8000,
+                                maxLoadTimeMs: 30000,
+                                timeoutRetry: {
+                                  maxNumRetry: 2,
+                                  retryDelayMs: 1000,
+                                  maxRetryDelayMs: 5000,
+                                  backoff: 'exponential',
+                                },
+                                errorRetry: {
+                                  maxNumRetry: 4,
+                                  retryDelayMs: 1500,
+                                  maxRetryDelayMs: 10000,
+                                  backoff: 'exponential',
+                                },
+                              },
+                            },
+                          });
+
+                          newHls.loadSource(videoUrl);
+                          newHls.attachMedia(video);
+                          video.hls = newHls;
+
+                          console.log('其他浏览器: HLS实例已重新初始化');
+
+                          setTimeout(() => {
+                            if (artPlayerRef.current) {
+                              const lastCurrentTime =
+                                artPlayerRef.current.currentTime || 0;
+                              artPlayerRef.current.currentTime =
+                                lastCurrentTime;
+                              artPlayerRef.current
+                                .play()
+                                .catch((playError: any) => {
+                                  console.warn(
+                                    '重新初始化后播放失败:',
+                                    playError
+                                  );
+                                });
+                            }
+                          }, 1000);
+                        }, 1000);
+                      }
                     }
                   }
                 }
@@ -3198,8 +3289,8 @@ function PlayPageClient() {
           let hasBufferedData = false;
           let bufferedAhead = 0;
           let totalBuffered = 0;
-          let bufferStart = 0;
-          let bufferEnd = 0;
+          const _bufferStart = 0;
+          const _bufferEnd = 0;
 
           if (buffered && buffered.length > 0) {
             // 计算总缓冲时长
@@ -3216,16 +3307,16 @@ function PlayPageClient() {
               if (currentTime >= start && currentTime <= end) {
                 hasBufferedData = true;
                 bufferedAhead = end - currentTime; // 计算前方缓冲时长
-                bufferStart = start;
-                bufferEnd = end;
+                const _bufferStart = start;
+                const _bufferEnd = end;
                 break;
               }
 
               // 检查是否有前方缓冲
               if (start > currentTime && start - currentTime < 2) {
                 bufferedAhead = end - currentTime;
-                bufferStart = start;
-                bufferEnd = end;
+                const _bufferStart = start;
+                const _bufferEnd = end;
                 break;
               }
             }
@@ -3422,14 +3513,16 @@ function PlayPageClient() {
                               maxBufferLength = 60;
                               maxBufferSize = 100 * 1000 * 1000;
                               break;
-                            case 'fair':
+                            case 'fair': {
                               maxBufferLength = 30;
-                              maxBufferSize = 60 * 1000 * 1000;
+                              const _maxBufferSize = 60 * 1000 * 1000;
                               break;
-                            case 'poor':
+                            }
+                            case 'poor': {
                               maxBufferLength = 15;
-                              maxBufferSize = 30 * 1000 * 1000;
+                              const _maxBufferSize = 30 * 1000 * 1000;
                               break;
+                            }
                           }
 
                           // 短暂延迟后重新创建HLS实例

@@ -75,6 +75,18 @@ export function isIOSUserAgent(ua?: string): boolean {
   return /iPhone|iPad|iPod/i.test(s);
 }
 
+/** 判断是否为 Safari 浏览器 */
+export function isSafariBrowser(ua?: string): boolean {
+  const s = ua ?? getEffectiveUserAgent();
+  return /Safari/i.test(s) && !/Chrome/i.test(s) && !/Chromium/i.test(s);
+}
+
+/** 判断是否为 WebKit 内核浏览器 */
+export function isWebKitBrowser(ua?: string): boolean {
+  const s = ua ?? getEffectiveUserAgent();
+  return /WebKit/i.test(s);
+}
+
 /**
  * 从m3u8地址获取视频质量等级和网络信息
  * @param m3u8Url m3u8播放列表的URL
@@ -209,24 +221,61 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
       // 监听hls.js错误
       hls.on(Hls.Events.ERROR, (event: any, data: any) => {
         console.error('HLS错误:', data);
-        // 增强错误处理，即使致命错误也尝试恢复
+
+        // 检测浏览器类型
+        const isSafari = isSafariBrowser();
+        const isWebKit = isWebKitBrowser();
+
+        // 增强错误处理，根据浏览器类型采用不同策略
         if (data.fatal) {
           console.warn('检测到HLS致命错误，尝试恢复...');
-          // 不立即销毁，而是尝试重新加载
           clearTimeout(timeout);
 
-          // 增加重试机制
-          setTimeout(() => {
-            try {
-              hls.startLoad();
-              console.log('HLS重新加载尝试成功');
-            } catch (recoverError) {
-              console.error('HLS恢复失败:', recoverError);
-              hls.destroy();
-              video.remove();
-              reject(new Error(`HLS播放失败: ${data.type}`));
-            }
-          }, 1000);
+          // Safari浏览器：减少干预
+          if (isSafari) {
+            console.log('Safari: 轻量级错误恢复');
+            setTimeout(() => {
+              try {
+                hls.startLoad();
+                console.log('Safari: HLS轻量级恢复成功');
+              } catch (recoverError) {
+                console.error('Safari: HLS恢复失败，停止干预:', recoverError);
+                hls.destroy();
+                video.remove();
+                reject(new Error(`Safari HLS播放失败: ${data.type}`));
+              }
+            }, 2000);
+          }
+          // WebKit浏览器：中等干预
+          else if (isWebKit) {
+            console.log('WebKit: 中等干预错误恢复');
+            setTimeout(() => {
+              try {
+                hls.startLoad();
+                console.log('WebKit: HLS恢复成功');
+              } catch (recoverError) {
+                console.error('WebKit: HLS恢复失败:', recoverError);
+                hls.destroy();
+                video.remove();
+                reject(new Error(`WebKit HLS播放失败: ${data.type}`));
+              }
+            }, 1500);
+          }
+          // 其他浏览器：标准干预
+          else {
+            console.log('其他浏览器: 标准错误恢复');
+            setTimeout(() => {
+              try {
+                hls.startLoad();
+                console.log('其他浏览器: HLS恢复成功');
+              } catch (recoverError) {
+                console.error('其他浏览器: HLS恢复失败:', recoverError);
+                hls.destroy();
+                video.remove();
+                reject(new Error(`HLS播放失败: ${data.type}`));
+              }
+            }, 1000);
+          }
         }
       });
 

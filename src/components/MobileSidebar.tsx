@@ -137,7 +137,7 @@ const MobileSidebar = ({ isVisible, onClose }: MobileSidebarProps) => {
     },
   ];
 
-  const handleItemClick = (key: NavItemKey, href: string) => {
+  const handleItemClick = (key: NavItemKey, _href: string) => {
     setActiveKey(key);
     setUserSelected(true);
     setStoredNavKey(key); // 立即保存到存储

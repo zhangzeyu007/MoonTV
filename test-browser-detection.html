@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>浏览器检测测试</title>
+  </head>
+  <body>
+    <h1>浏览器检测测试</h1>
+    <div id="results"></div>
+
+    <script>
+      // 复制自 utils.ts 的浏览器检测函数
+      function getEffectiveUserAgent() {
+        try {
+          const maybeCustom = globalThis?.CUSTOM_USER_AGENT;
+          if (typeof maybeCustom === 'string' && maybeCustom.trim()) {
+            return maybeCustom;
+          }
+        } catch (_) {
+          /* ignore */
+        }
+        if (typeof navigator !== 'undefined' && navigator.userAgent) {
+          return navigator.userAgent;
+        }
+        return '';
+      }
+
+      function isSafariBrowser(ua) {
+        const s = ua ?? getEffectiveUserAgent();
+        return /Safari/i.test(s) && !/Chrome/i.test(s) && !/Chromium/i.test(s);
+      }
+
+      function isWebKitBrowser(ua) {
+        const s = ua ?? getEffectiveUserAgent();
+        return /WebKit/i.test(s);
+      }
+
+      function isIOSUserAgent(ua) {
+        const s = ua ?? getEffectiveUserAgent();
+        return /iPhone|iPad|iPod/i.test(s);
+      }
+
+      // 测试结果
+      const userAgent = navigator.userAgent;
+      const isSafari = isSafariBrowser();
+      const isWebKit = isWebKitBrowser();
+      const isIOS = isIOSUserAgent();
+
+      document.getElementById('results').innerHTML = `
+            <h2>检测结果</h2>
+            <p><strong>User Agent:</strong> ${userAgent}</p>
+            <p><strong>是否为Safari:</strong> ${isSafari ? '是' : '否'}</p>
+            <p><strong>是否为WebKit:</strong> ${isWebKit ? '是' : '否'}</p>
+            <p><strong>是否为iOS:</strong> ${isIOS ? '是' : '否'}</p>
+            
+            <h3>HLS错误处理策略</h3>
+            <p><strong>Safari策略:</strong> ${
+              isSafari ? '轻量级干预（只重试1次，不重新初始化）' : '不适用'
+            }</p>
+            <p><strong>WebKit策略:</strong> ${
+              isWebKit && !isSafari
+                ? '中等干预（重试2次，轻量级重新初始化）'
+                : '不适用'
+            }</p>
+            <p><strong>其他浏览器策略:</strong> ${
+              !isSafari && !isWebKit
+                ? '标准干预（重试3次，完整重新初始化）'
+                : '不适用'
+            }</p>
+        `;
+    </script>
+  </body>
+</html>
