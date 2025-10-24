@@ -92,7 +92,10 @@ export function isWebKitBrowser(ua?: string): boolean {
  * @param m3u8Url m3u8播放列表的URL
  * @returns Promise<{quality: string, loadSpeed: string, pingTime: number}> 视频质量等级和网络信息
  */
-export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
+export async function getVideoResolutionFromM3u8(
+  m3u8Url: string,
+  onSourceFailure?: (url: string, error: any) => void
+): Promise<{
   quality: string; // 如720p、1080p等
   loadSpeed: string; // 自动转换为KB/s或MB/s
   pingTime: number; // 网络延迟（毫秒）
@@ -114,43 +117,98 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
         mode: 'cors',
         headers: {
           'User-Agent':
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0.1 Mobile/15E148 Safari/604.1',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0.1 Safari/605.1.15',
           Referer: window.location.origin,
           Accept: '*/*',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Cache-Control': 'no-cache',
-          Pragma: 'no-cache',
         },
-        signal: AbortSignal.timeout(5000), // 5秒超时
+        signal: AbortSignal.timeout(3000), // 3秒超时
       })
+        .catch((fetchError) => {
+          // 捕获fetch错误，避免未处理的Promise rejection
+          console.warn(`Fetch请求失败: ${fetchError.message}`, fetchError);
+          throw fetchError;
+        })
         .then((response) => {
           pingTime = performance.now() - pingStart;
-          console.log(
-            `网络ping成功: ${pingTime.toFixed(2)}ms, 状态: ${response.status}`
-          );
-          return response;
+
+          // 检查响应状态码
+          if (response.status >= 200 && response.status < 300) {
+            console.log(
+              `网络ping成功: ${pingTime.toFixed(2)}ms, 状态: ${response.status}`
+            );
+            return response;
+          } else if (response.status >= 500) {
+            // 服务器错误（5xx），使用较长的默认延迟
+            console.warn(
+              `服务器错误 ${response.status}: ${pingTime.toFixed(
+                2
+              )}ms, 使用较长延迟`
+            );
+            pingTime = 2000; // 服务器错误时使用2秒延迟
+            return response;
+          } else {
+            // 客户端错误（4xx），使用中等延迟
+            console.warn(
+              `客户端错误 ${response.status}: ${pingTime.toFixed(
+                2
+              )}ms, 使用中等延迟`
+            );
+            pingTime = 1500; // 客户端错误时使用1.5秒延迟
+            return response;
+          }
         })
         .catch((error) => {
           pingTime = performance.now() - pingStart;
-          console.warn(
-            `网络ping失败: ${error.message}, 耗时: ${pingTime.toFixed(2)}ms`
-          );
-          // 如果HEAD请求失败，尝试GET请求作为备用
-          return fetch(m3u8Url, {
-            method: 'GET',
-            mode: 'cors',
-            headers: {
-              'User-Agent':
-                'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0.1 Mobile/15E148 Safari/604.1',
-              Referer: window.location.origin,
-              Accept: '*/*',
-              Range: 'bytes=0-1023', // 只请求前1KB
-            },
-            signal: AbortSignal.timeout(3000),
-          }).catch(() => {
-            console.warn('备用GET请求也失败，使用默认ping时间');
-            pingTime = 1000; // 默认1秒延迟
-          });
+
+          // 根据错误类型设置不同的延迟时间
+          if (error.name === 'AbortError') {
+            console.warn(
+              `网络ping超时: ${pingTime.toFixed(2)}ms, 使用超时延迟`
+            );
+            pingTime = 3000; // 超时时使用3秒延迟
+
+            // 如果是长时间超时（接近5秒），触发源切换
+            if (pingTime >= 4500) {
+              console.warn(`长时间超时检测到，建议切换视频源: ${m3u8Url}`);
+              if (onSourceFailure) {
+                onSourceFailure(m3u8Url, error);
+              }
+            }
+          } else if (
+            error.message.includes('CORS') ||
+            error.message.includes('CORS policy')
+          ) {
+            console.warn(`CORS错误: ${pingTime.toFixed(2)}ms, 使用CORS延迟`);
+            pingTime = 1500; // CORS错误时使用1.5秒延迟
+          } else if (
+            error.message.includes('Failed to fetch') ||
+            error.message.includes('NetworkError')
+          ) {
+            console.warn(
+              `网络连接失败: ${pingTime.toFixed(2)}ms, 使用网络错误延迟`
+            );
+            pingTime = 2000; // 网络错误时使用2秒延迟
+
+            // 对于网络错误，触发源切换
+            console.warn(`网络错误检测到，建议切换视频源: ${m3u8Url}`);
+            if (onSourceFailure) {
+              onSourceFailure(m3u8Url, error);
+            }
+          } else {
+            console.warn(
+              `网络ping失败: ${error.message}, 耗时: ${pingTime.toFixed(
+                2
+              )}ms, 使用默认延迟`
+            );
+            pingTime = 1000; // 其他错误使用1秒延迟
+          }
+
+          // 不抛出错误，而是返回一个模拟的成功响应，避免Promise rejection
+          return {
+            status: 200,
+            ok: true,
+            headers: new Headers(),
+          };
         });
 
       // 固定使用hls.js加载
@@ -161,7 +219,7 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
         hls.destroy();
         video.remove();
         reject(new Error('Timeout loading video metadata'));
-      }, 4000);
+      }, 3000);
 
       video.onerror = () => {
         clearTimeout(timeout);
@@ -328,4 +386,165 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
       }`
     );
   }
+}
+
+/**
+ * 优化的视频源测试函数
+ * 结合缓存机制，提供更快的源测试体验
+ */
+export async function getOptimizedVideoResolutionFromM3u8(
+  m3u8Url: string,
+  onSourceFailure?: (url: string, error: any) => void,
+  _useCache = true
+): Promise<{
+  quality: string;
+  loadSpeed: string;
+  pingTime: number;
+}> {
+  // 暂时禁用缓存功能，直接使用原始测试方法
+  // TODO: 实现更简单的缓存机制
+  return getVideoResolutionFromM3u8(m3u8Url, onSourceFailure);
+}
+
+/**
+ * 批量测试视频源
+ * 并发测试多个源，提高效率
+ */
+export async function batchTestVideoSources(
+  urls: string[],
+  onSourceFailure?: (url: string, error: any) => void,
+  maxConcurrency = 3
+): Promise<
+  Map<string, { quality: string; loadSpeed: string; pingTime: number } | null>
+> {
+  const results = new Map<
+    string,
+    { quality: string; loadSpeed: string; pingTime: number } | null
+  >();
+
+  // 分批处理，避免过多并发请求
+  const chunks = [];
+  for (let i = 0; i < urls.length; i += maxConcurrency) {
+    chunks.push(urls.slice(i, i + maxConcurrency));
+  }
+
+  for (const chunk of chunks) {
+    const promises = chunk.map(async (url) => {
+      try {
+        const result = await getOptimizedVideoResolutionFromM3u8(
+          url,
+          onSourceFailure
+        );
+        results.set(url, result);
+      } catch (error) {
+        console.warn(`源测试失败: ${url}`, error);
+        results.set(url, null);
+      }
+    });
+
+    await Promise.allSettled(promises);
+  }
+
+  return results;
+}
+
+/**
+ * 智能源选择算法
+ * 基于多个因素选择最佳播放源
+ */
+export function selectBestSource(
+  sources: Array<{
+    source: any;
+    testResult: { quality: string; loadSpeed: string; pingTime: number };
+  }>
+): any {
+  if (sources.length === 0) return null;
+  if (sources.length === 1) return sources[0].source;
+
+  // 计算每个源的综合评分
+  const scoredSources = sources.map(({ source, testResult }) => {
+    let score = 0;
+
+    // 质量评分 (40%)
+    const qualityScore = getQualityScore(testResult.quality);
+    score += qualityScore * 0.4;
+
+    // 速度评分 (40%)
+    const speedScore = getSpeedScore(testResult.loadSpeed);
+    score += speedScore * 0.4;
+
+    // 延迟评分 (20%)
+    const pingScore = getPingScore(testResult.pingTime);
+    score += pingScore * 0.2;
+
+    return { source, score };
+  });
+
+  // 按评分排序
+  scoredSources.sort((a, b) => b.score - a.score);
+
+  console.log('源评分排序结果:');
+  scoredSources.forEach((item, index) => {
+    console.log(
+      `${index + 1}. ${item.source.source_name} - 评分: ${item.score.toFixed(
+        2
+      )}`
+    );
+  });
+
+  return scoredSources[0].source;
+}
+
+/**
+ * 获取质量评分
+ */
+function getQualityScore(quality: string): number {
+  switch (quality) {
+    case '4K':
+      return 100;
+    case '2K':
+      return 85;
+    case '1080p':
+      return 75;
+    case '720p':
+      return 60;
+    case '480p':
+      return 40;
+    case 'SD':
+      return 20;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * 获取速度评分
+ */
+function getSpeedScore(speed: string): number {
+  if (speed === '未知' || speed === '测量中...') return 30;
+
+  const match = speed.match(/^([\d.]+)\s*(KB\/s|MB\/s)$/);
+  if (!match) return 30;
+
+  const value = parseFloat(match[1]);
+  const unit = match[2];
+  const speedKBps = unit === 'MB/s' ? value * 1024 : value;
+
+  // 基于速度线性评分，1MB/s = 100分
+  return Math.min(100, Math.max(0, (speedKBps / 1024) * 100));
+}
+
+/**
+ * 获取延迟评分
+ */
+function getPingScore(ping: number): number {
+  if (ping <= 0) return 0;
+
+  // 延迟越低评分越高
+  if (ping <= 100) return 100;
+  if (ping <= 200) return 80;
+  if (ping <= 500) return 60;
+  if (ping <= 1000) return 40;
+  if (ping <= 2000) return 20;
+  return 0;
 }
