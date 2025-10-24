@@ -2620,6 +2620,136 @@ function PlayPageClient() {
             if (typeof window !== 'undefined') {
               (window as any).artPlayerInstance = artPlayerRef.current;
             }
+
+            // 智能备用播放源机制
+            const createBackupSources = (originalUrl: string) => {
+              const backupSources: string[] = [];
+
+              // 尝试不同的备用URL模式
+              if (originalUrl.includes('vip.dytt-cinema.com')) {
+                // 主源：vip.dytt-cinema.com
+                backupSources.push(originalUrl);
+
+                // 备用源1：尝试不同的子域名
+                const altUrl1 = originalUrl.replace(
+                  'vip.dytt-cinema.com',
+                  'cdn.dytt-cinema.com'
+                );
+                backupSources.push(altUrl1);
+
+                // 备用源2：尝试不同的路径
+                const altUrl2 = originalUrl.replace('/20251018/', '/20251019/');
+                backupSources.push(altUrl2);
+
+                // 备用源3：尝试不同的协议
+                const altUrl3 = originalUrl.replace('https://', 'http://');
+                backupSources.push(altUrl3);
+              }
+
+              return backupSources;
+            };
+
+            const backupSources = createBackupSources(videoUrl);
+            let currentSourceIndex = 0;
+            let sourceRetryCount = 0;
+            const maxSourceRetries = 3;
+
+            const tryNextSource = () => {
+              if (currentSourceIndex < backupSources.length - 1) {
+                currentSourceIndex++;
+                sourceRetryCount = 0;
+                console.log(
+                  `尝试备用源 ${currentSourceIndex + 1}/${
+                    backupSources.length
+                  }:`,
+                  backupSources[currentSourceIndex]
+                );
+
+                // 销毁当前HLS实例
+                if (hls) {
+                  hls.destroy();
+                }
+
+                // 创建新的HLS实例
+                const newHls = new Hls({
+                  debug: false,
+                  enableWorker: true,
+                  lowLatencyMode: true,
+                  maxBufferLength: 60,
+                  backBufferLength: 60,
+                  maxBufferSize: 100 * 1000 * 1000,
+                  maxMaxBufferLength: 600,
+                  fragLoadingTimeOut: 30000,
+                  manifestLoadingTimeOut: 20000,
+                  levelLoadingTimeOut: 20000,
+                  maxLoadingDelay: 8,
+                  maxBufferHole: 2.0,
+                  highBufferWatchdogPeriod: 5,
+                  nudgeOffset: 0.2,
+                  fragLoadingMaxRetry: 8,
+                  manifestLoadingMaxRetry: 6,
+                  levelLoadingMaxRetry: 6,
+                  fragLoadingRetryDelay: 1000,
+                  manifestLoadingRetryDelay: 1500,
+                  levelLoadingRetryDelay: 1500,
+                });
+
+                // 重新设置错误处理
+                setupHlsErrorHandling(newHls);
+
+                // 加载新的源
+                newHls.loadSource(backupSources[currentSourceIndex]);
+                newHls.attachMedia(video);
+
+                return newHls;
+              }
+              return null;
+            };
+
+            const setupHlsErrorHandling = (hlsInstance: any) => {
+              hlsInstance.on(
+                Hls.Events.ERROR,
+                function (event: any, data: any) {
+                  console.error(
+                    'HLS Error (Source:',
+                    currentSourceIndex + 1,
+                    '):',
+                    event,
+                    data
+                  );
+
+                  if (data.fatal) {
+                    sourceRetryCount++;
+                    console.log(
+                      `源 ${
+                        currentSourceIndex + 1
+                      } 失败，重试次数: ${sourceRetryCount}/${maxSourceRetries}`
+                    );
+
+                    if (sourceRetryCount < maxSourceRetries) {
+                      // 重试当前源
+                      setTimeout(() => {
+                        try {
+                          hlsInstance.startLoad();
+                        } catch (error) {
+                          console.error('重试当前源失败:', error);
+                        }
+                      }, 2000 * sourceRetryCount);
+                    } else {
+                      // 尝试下一个源
+                      const nextHls = tryNextSource();
+                      if (!nextHls) {
+                        console.error('所有备用源都已尝试，播放失败');
+                        // 显示错误信息给用户
+                        alert(
+                          '播放失败：所有备用源都无法访问，请检查网络连接或稍后重试'
+                        );
+                      }
+                    }
+                  }
+                }
+              );
+            };
             const hls = new Hls({
               debug: false, // 关闭日志
               enableWorker: true, // WebWorker 解码，降低主线程压力
@@ -2641,61 +2771,12 @@ function PlayPageClient() {
               nudgeOffset: 0.2, // 添加微调偏移增加到0.2
 
               /* 重试配置 - 更智能的重试策略 */
-              fragLoadingMaxRetry: 6, // 片段加载最大重试次数
-              manifestLoadingMaxRetry: 4, // manifest加载最大重试次数
-              levelLoadingMaxRetry: 4, // 级别加载最大重试次数
+              fragLoadingMaxRetry: 8, // 片段加载最大重试次数增加到8次
+              manifestLoadingMaxRetry: 6, // manifest加载最大重试次数增加到6次
+              levelLoadingMaxRetry: 6, // 级别加载最大重试次数增加到6次
               fragLoadingRetryDelay: 1000, // 片段加载重试延迟增加到1秒
               manifestLoadingRetryDelay: 1500, // manifest加载重试延迟增加到1.5秒
               levelLoadingRetryDelay: 1500, // 级别加载重试延迟增加到1.5秒
-
-              /* 新增智能加载策略配置 */
-              // 片段加载策略
-              fragLoadPolicy: {
-                default: {
-                  maxTimeToFirstByteMs: 10000, // 增加到10秒
-                  maxLoadTimeMs: 60000, // 增加到60秒
-                  timeoutRetry: {
-                    maxNumRetry: 3,
-                    retryDelayMs: 1000,
-                    maxRetryDelayMs: 8000,
-                    backoff: 'exponential',
-                  },
-                  errorRetry: {
-                    maxNumRetry: 6,
-                    retryDelayMs: 2000,
-                    maxRetryDelayMs: 15000,
-                    backoff: 'exponential',
-                  },
-                },
-              },
-              // 清单加载策略
-              manifestLoadPolicy: {
-                default: {
-                  maxTimeToFirstByteMs: 8000,
-                  maxLoadTimeMs: 30000,
-                  timeoutRetry: {
-                    maxNumRetry: 2,
-                    retryDelayMs: 1000,
-                    maxRetryDelayMs: 5000,
-                    backoff: 'exponential',
-                  },
-                  errorRetry: {
-                    maxNumRetry: 4,
-                    retryDelayMs: 1500,
-                    maxRetryDelayMs: 10000,
-                    backoff: 'exponential',
-                  },
-                },
-              },
-
-              /* 网络适应性配置 */
-              startFragPrefetch: true, // 启用片段预取
-              testBandwidth: true, // 启用带宽测试以选择合适的质量
-              autoStartLoad: true, // 自动开始加载
-
-              /* 动态调整配置 */
-              // 根据网络状况动态调整缓冲策略
-              capLevelToPlayerSize: false, // 不根据播放器大小限制清晰度
 
               /* 自定义loader */
               loader: blockAdEnabledRef.current
@@ -2800,27 +2881,221 @@ function PlayPageClient() {
 
             console.log(`浏览器检测: Safari=${isSafari}, WebKit=${isWebKit}`);
 
+            // 网络状态检测
+            let networkCheckInterval: NodeJS.Timeout | null = null;
+            let isNetworkOnline = navigator.onLine;
+            let lastNetworkCheck = Date.now();
+
+            const startNetworkMonitoring = () => {
+              if (networkCheckInterval) return;
+
+              networkCheckInterval = setInterval(async () => {
+                const now = Date.now();
+                const timeSinceLastCheck = now - lastNetworkCheck;
+
+                // 检查网络连接状态
+                const wasOnline = isNetworkOnline;
+                isNetworkOnline = navigator.onLine;
+
+                if (!wasOnline && isNetworkOnline) {
+                  console.log('网络已恢复，尝试重新加载HLS...');
+                  try {
+                    hls.startLoad();
+                  } catch (error) {
+                    console.warn('网络恢复后重新加载失败:', error);
+                  }
+                }
+
+                // 定期检查网络质量
+                if (timeSinceLastCheck > 10000) {
+                  // 每10秒检查一次
+                  try {
+                    const response = await fetch(videoUrl, {
+                      method: 'HEAD',
+                      signal: AbortSignal.timeout(3000),
+                    });
+                    if (!response.ok) {
+                      console.warn(
+                        '网络质量检测失败，状态码:',
+                        response.status
+                      );
+                    }
+                  } catch (error) {
+                    console.warn('网络质量检测失败:', error);
+                  }
+                  lastNetworkCheck = now;
+                }
+              }, 5000);
+            };
+
+            const _stopNetworkMonitoring = () => {
+              if (networkCheckInterval) {
+                clearInterval(networkCheckInterval);
+                networkCheckInterval = null;
+              }
+            };
+
+            // 开始网络监控
+            startNetworkMonitoring();
+
+            // 网络质量检测和自适应播放
+            const networkQualityMonitor = {
+              connectionSpeed: 0,
+              latency: 0,
+              packetLoss: 0,
+              qualityScore: 1.0,
+
+              async measureNetworkQuality() {
+                try {
+                  const startTime = performance.now();
+                  const response = await fetch(videoUrl, {
+                    method: 'HEAD',
+                    signal: AbortSignal.timeout(5000),
+                  });
+                  const endTime = performance.now();
+
+                  this.latency = endTime - startTime;
+                  this.connectionSpeed =
+                    this.calculateConnectionSpeed(response);
+                  this.qualityScore = this.calculateQualityScore();
+
+                  console.log(
+                    `网络质量检测: 延迟=${this.latency.toFixed(2)}ms, 速度=${(
+                      this.connectionSpeed /
+                      1024 /
+                      1024
+                    ).toFixed(2)}MB/s, 质量分数=${this.qualityScore.toFixed(2)}`
+                  );
+
+                  return this.qualityScore;
+                } catch (error) {
+                  console.warn('网络质量检测失败:', error);
+                  this.qualityScore = 0.3; // 低质量默认值
+                  return this.qualityScore;
+                }
+              },
+
+              calculateConnectionSpeed(response: Response) {
+                const contentLength = response.headers.get('content-length');
+                if (contentLength) {
+                  return parseInt(contentLength) / (this.latency / 1000);
+                }
+                return 1000000; // 默认1MB/s
+              },
+
+              calculateQualityScore() {
+                let score = 1.0;
+
+                // 延迟影响
+                if (this.latency > 2000) score -= 0.3;
+                else if (this.latency > 1000) score -= 0.2;
+                else if (this.latency > 500) score -= 0.1;
+
+                // 速度影响
+                if (this.connectionSpeed < 100000) score -= 0.4; // < 100KB/s
+                else if (this.connectionSpeed < 500000)
+                  score -= 0.2; // < 500KB/s
+                else if (this.connectionSpeed < 1000000) score -= 0.1; // < 1MB/s
+
+                return Math.max(0.1, Math.min(1.0, score));
+              },
+
+              getAdaptiveConfig() {
+                if (this.qualityScore > 0.8) {
+                  return {
+                    maxBufferLength: 60,
+                    fragLoadingTimeOut: 20000,
+                    fragLoadingMaxRetry: 4,
+                  };
+                } else if (this.qualityScore > 0.5) {
+                  return {
+                    maxBufferLength: 30,
+                    fragLoadingTimeOut: 30000,
+                    fragLoadingMaxRetry: 6,
+                  };
+                } else {
+                  return {
+                    maxBufferLength: 15,
+                    fragLoadingTimeOut: 45000,
+                    fragLoadingMaxRetry: 8,
+                  };
+                }
+              },
+            };
+
+            // 定期检测网络质量并调整配置
+            setInterval(async () => {
+              const quality =
+                await networkQualityMonitor.measureNetworkQuality();
+              const adaptiveConfig = networkQualityMonitor.getAdaptiveConfig();
+
+              // 如果网络质量变化较大，重新配置HLS
+              if (
+                Math.abs(quality - networkQualityMonitor.qualityScore) > 0.2
+              ) {
+                console.log('网络质量变化，调整播放配置:', adaptiveConfig);
+                // 这里可以动态调整HLS配置
+              }
+            }, 15000); // 每15秒检测一次
+
             hls.on(Hls.Events.ERROR, function (event: any, data: any) {
               console.error('HLS Error:', event, data);
 
               // 增加错误计数
               setHlsErrorCount((prev) => prev + 1);
 
-              // 处理非致命错误 - 所有浏览器都采用相同的轻量级处理
+              // 处理非致命错误 - 增强的错误处理
               if (!data.fatal) {
                 switch (data.type) {
                   case Hls.ErrorTypes.NETWORK_ERROR:
+                    console.log('网络错误详情:', data.details);
                     if (data.details === 'fragLoadTimeOut') {
                       console.log('片段加载超时，尝试重新加载...');
-                      hls.startLoad();
+                      // 增加延迟重试，避免频繁重试
+                      setTimeout(() => {
+                        try {
+                          hls.startLoad();
+                        } catch (error) {
+                          console.error('重新加载失败:', error);
+                        }
+                      }, 2000);
+                    } else if (data.details === 'fragLoadError') {
+                      console.log('片段加载错误，尝试恢复...');
+                      setTimeout(() => {
+                        try {
+                          hls.startLoad();
+                        } catch (error) {
+                          console.error('恢复失败:', error);
+                        }
+                      }, 1500);
                     } else {
-                      console.log('网络错误，尝试恢复...');
-                      hls.startLoad();
+                      console.log('其他网络错误，尝试恢复...');
+                      setTimeout(() => {
+                        try {
+                          hls.startLoad();
+                        } catch (error) {
+                          console.error('网络恢复失败:', error);
+                        }
+                      }, 1000);
                     }
                     break;
                   case Hls.ErrorTypes.MEDIA_ERROR:
                     console.log('媒体错误，尝试恢复...');
-                    hls.recoverMediaError();
+                    try {
+                      hls.recoverMediaError();
+                    } catch (error) {
+                      console.error('媒体错误恢复失败:', error);
+                    }
+                    break;
+                  case Hls.ErrorTypes.MUX_ERROR:
+                    console.log('多路复用错误，尝试重新加载...');
+                    setTimeout(() => {
+                      try {
+                        hls.startLoad();
+                      } catch (error) {
+                        console.error('重新加载失败:', error);
+                      }
+                    }, 3000);
                     break;
                   default:
                     console.log('非致命错误，继续播放...');
@@ -3515,12 +3790,12 @@ function PlayPageClient() {
                               break;
                             case 'fair': {
                               maxBufferLength = 30;
-                              const _maxBufferSize = 60 * 1000 * 1000;
+                              maxBufferSize = 60 * 1000 * 1000;
                               break;
                             }
                             case 'poor': {
                               maxBufferLength = 15;
-                              const _maxBufferSize = 30 * 1000 * 1000;
+                              maxBufferSize = 30 * 1000 * 1000;
                               break;
                             }
                           }
@@ -3534,6 +3809,7 @@ function PlayPageClient() {
                                   currentLevel >= 0 ? currentLevel : -1,
                                 // 使用更保守的配置
                                 maxBufferLength: maxBufferLength,
+                                maxBufferSize: maxBufferSize,
                                 backBufferLength: 30,
                                 fragLoadingTimeOut: 30000,
                                 fragLoadingMaxRetry: 6,

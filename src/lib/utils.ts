@@ -108,13 +108,49 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
       const pingStart = performance.now();
       let pingTime = 0;
 
-      // 测量ping时间（使用m3u8 URL）
-      fetch(m3u8Url, { method: 'HEAD', mode: 'no-cors' })
-        .then(() => {
+      // 测量ping时间（使用m3u8 URL）- 优化网络请求处理
+      const _pingPromise = fetch(m3u8Url, {
+        method: 'HEAD',
+        mode: 'cors',
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0.1 Mobile/15E148 Safari/604.1',
+          Referer: window.location.origin,
+          Accept: '*/*',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
+        signal: AbortSignal.timeout(5000), // 5秒超时
+      })
+        .then((response) => {
           pingTime = performance.now() - pingStart;
+          console.log(
+            `网络ping成功: ${pingTime.toFixed(2)}ms, 状态: ${response.status}`
+          );
+          return response;
         })
-        .catch(() => {
-          pingTime = performance.now() - pingStart; // 记录到失败为止的时间
+        .catch((error) => {
+          pingTime = performance.now() - pingStart;
+          console.warn(
+            `网络ping失败: ${error.message}, 耗时: ${pingTime.toFixed(2)}ms`
+          );
+          // 如果HEAD请求失败，尝试GET请求作为备用
+          return fetch(m3u8Url, {
+            method: 'GET',
+            mode: 'cors',
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0.1 Mobile/15E148 Safari/604.1',
+              Referer: window.location.origin,
+              Accept: '*/*',
+              Range: 'bytes=0-1023', // 只请求前1KB
+            },
+            signal: AbortSignal.timeout(3000),
+          }).catch(() => {
+            console.warn('备用GET请求也失败，使用默认ping时间');
+            pingTime = 1000; // 默认1秒延迟
+          });
         });
 
       // 固定使用hls.js加载
