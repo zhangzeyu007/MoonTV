@@ -491,6 +491,9 @@ function PlayPageClient() {
   const artPlayerRef = useRef<any>(null);
   const artRef = useRef<HTMLDivElement | null>(null);
 
+  // 播放器重建防抖
+  const rebuildTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // 播放器控制（全屏 / 音量 / 倍速）
   const speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
   const [playbackRate, setPlaybackRate] = useState<number>(1);
@@ -1683,8 +1686,418 @@ function PlayPageClient() {
       );
     };
 
+    // 检测是否为 composedPath 相关错误
+    const isComposedPathError = (message: string) => {
+      const composedPathPatterns = [
+        'composedPath',
+        'e.composedPath',
+        'event.composedPath',
+        'target.composedPath',
+        'path.composedPath',
+        'composedPath of undefined',
+        'composedPath of null',
+        'event.composedPath is not a function',
+        'event.composedPath is not defined',
+        'TypeError: e.composedPath',
+        "TypeError: undefined is not an object (evaluating 'e.composedPath')",
+      ];
+      return composedPathPatterns.some((pattern) =>
+        message.toLowerCase().includes(pattern.toLowerCase())
+      );
+    };
+
+    // 定义一个更安全的事件处理包装器，专门用于处理可能频繁触发的事件
+    const createRobustEventHandler = (
+      handler: (e: any) => void,
+      eventName = ''
+    ) => {
+      return function (this: any, event: any) {
+        try {
+          // 基础事件对象验证
+          if (!event || typeof event !== 'object') {
+            console.warn(`事件处理警告: 接收到无效的事件对象 (${eventName})`);
+            return;
+          }
+
+          // 为事件对象提供安全的composedPath方法（如果缺失）
+          if (typeof event.composedPath !== 'function') {
+            // 创建更安全的composedPath实现
+            const safeComposedPath = function (this: any) {
+              try {
+                // 检查this是否存在且有效
+                if (!this || typeof this !== 'object') {
+                  return [];
+                }
+
+                const path: any[] = [];
+                let current = this.target;
+
+                // 添加安全检查防止循环和访问错误
+                let iterations = 0;
+                const maxIterations = 100;
+
+                // 确保current存在且有nodeType属性
+                while (
+                  current &&
+                  typeof current === 'object' &&
+                  current.nodeType &&
+                  iterations < maxIterations
+                ) {
+                  // 避免重复添加同一个元素
+                  if (!path.includes(current)) {
+                    path.push(current);
+                  }
+
+                  // 更安全的父节点访问
+                  const nextParent =
+                    current.parentNode || current.host || current.parentElement;
+
+                  // 检查是否存在循环引用或无效引用
+                  if (
+                    !nextParent ||
+                    nextParent === current ||
+                    nextParent === window ||
+                    nextParent === document
+                  ) {
+                    break;
+                  }
+
+                  current = nextParent;
+                  iterations++;
+                }
+
+                // 添加document和window到路径末尾（如果不在路径中）
+                if (path.length > 0) {
+                  if (
+                    typeof document !== 'undefined' &&
+                    !path.includes(document)
+                  ) {
+                    path.push(document);
+                  }
+                  if (typeof window !== 'undefined' && !path.includes(window)) {
+                    path.push(window);
+                  }
+                }
+
+                return path;
+              } catch (e) {
+                // 在任何错误情况下都返回空数组而不是抛出异常
+                console.warn('composedPath执行错误，返回空数组:', e);
+                return [];
+              }
+            };
+
+            // 安全地定义composedPath属性
+            try {
+              Object.defineProperty(event, 'composedPath', {
+                value: safeComposedPath,
+                writable: false,
+                enumerable: false,
+                configurable: true,
+              });
+            } catch (defineError) {
+              // 如果无法定义属性，使用替代方案
+              console.warn(
+                '无法为事件对象定义composedPath方法，使用替代方案:',
+                defineError
+              );
+              // 为事件对象添加一个安全的替代方法
+              (event as any).safeComposedPath = safeComposedPath;
+            }
+          }
+
+          // 调用原始处理器
+          return handler.call(this, event);
+        } catch (error) {
+          const errorMessage = String((error as any)?.message || error || '');
+          if (shouldSilenceError(errorMessage)) {
+            console.warn(
+              `🔇 事件处理中的兼容性错误已静默 (${eventName}):`,
+              errorMessage
+            );
+          } else {
+            console.error(`❌ 事件处理错误 (${eventName}):`, error);
+          }
+        }
+      };
+    };
+
+    // 播放器重建函数
+    const rebuildPlayer = () => {
+      // 防止重复重建
+      if (rebuildTimeoutRef.current) {
+        console.warn('🔄 播放器重建已在进行中，跳过重复请求');
+        return;
+      }
+
+      console.warn('🔄 检测到 composedPath 错误，开始重建播放器实例...');
+
+      // 设置重建标志，防止重复触发
+      rebuildTimeoutRef.current = setTimeout(() => {
+        rebuildTimeoutRef.current = null;
+      }, 2000); // 2秒内不允许重复重建
+
+      // 保存当前播放状态
+      const currentTime = artPlayerRef.current?.currentTime || 0;
+      const currentVolume = artPlayerRef.current?.volume || (volume ?? 0.7);
+      const isPlaying = !artPlayerRef.current?.paused;
+
+      // 销毁当前播放器实例
+      if (artPlayerRef.current) {
+        try {
+          // 销毁HLS实例
+          if (artPlayerRef.current.video && artPlayerRef.current.video.hls) {
+            artPlayerRef.current.video.hls.destroy();
+          }
+          // 销毁播放器
+          artPlayerRef.current.destroy();
+        } catch (e) {
+          console.warn('播放器销毁过程中出现错误:', e);
+        } finally {
+          artPlayerRef.current = null;
+          // 清理全局实例引用
+          if (
+            typeof window !== 'undefined' &&
+            (window as any).artPlayerInstance
+          ) {
+            (window as any).artPlayerInstance = null;
+          }
+        }
+      }
+
+      // 延迟重建播放器，确保DOM完全清理
+      setTimeout(() => {
+        console.log('🔄 开始重建播放器实例...');
+        // 触发播放器重新初始化
+        if (artRef.current && videoUrl) {
+          // 重新创建播放器实例
+          artPlayerRef.current = new Artplayer({
+            container: artRef.current as HTMLElement,
+            url: videoUrl,
+            poster: videoCover,
+            volume: currentVolume,
+            muted: false,
+            autoplay: isPlaying,
+            screenshot: false,
+            loop: false,
+            theme: '#22c55e',
+            lang: 'zh-cn',
+            hotkey: false,
+            pip: isPiPSupported,
+            type: 'm3u8',
+            customType: {
+              m3u8: function (video: HTMLVideoElement, url: string) {
+                if (!Hls) {
+                  console.error('HLS.js 未加载');
+                  return;
+                }
+
+                if (video.hls) {
+                  video.hls.destroy();
+                }
+
+                // 将播放器实例暴露到全局
+                if (typeof window !== 'undefined') {
+                  (window as any).artPlayerInstance = artPlayerRef.current;
+                }
+
+                const hls = new Hls({
+                  debug: false,
+                  enableWorker: true,
+                  lowLatencyMode: true,
+                  maxBufferLength: 60,
+                  backBufferLength: 60,
+                  maxBufferSize: 100 * 1000 * 1000,
+                  maxMaxBufferLength: 600,
+                  fragLoadingTimeOut: 30000,
+                  manifestLoadingTimeOut: 20000,
+                  levelLoadingTimeOut: 20000,
+                  maxLoadingDelay: 8,
+                  maxBufferHole: 2.0,
+                  highBufferWatchdogPeriod: 5,
+                  nudgeOffset: 0.2,
+                  fragLoadingMaxRetry: 6,
+                  manifestLoadingMaxRetry: 4,
+                  levelLoadingMaxRetry: 4,
+                  fragLoadingRetryDelay: 1000,
+                  manifestLoadingRetryDelay: 1500,
+                  levelLoadingRetryDelay: 1500,
+                  startFragPrefetch: true,
+                  testBandwidth: true,
+                  autoStartLoad: true,
+                  capLevelToPlayerSize: false,
+                  loader: blockAdEnabledRef.current
+                    ? CustomHlsJsLoader
+                    : Hls.DefaultConfig.loader,
+                });
+
+                hls.loadSource(url);
+                hls.attachMedia(video);
+                video.hls = hls;
+              },
+            },
+          });
+
+          // 重新设置所有事件监听器
+          if (artPlayerRef.current) {
+            // 监听播放器事件 - 使用增强的安全包装器
+            artPlayerRef.current.on(
+              'ready',
+              createRobustEventHandler((_e: any) => {
+                setError(null);
+                console.log('🎯 播放器就绪');
+              }, 'ready')
+            );
+
+            artPlayerRef.current.on(
+              'video:volumechange',
+              createRobustEventHandler((_e: any) => {
+                lastVolumeRef.current = artPlayerRef.current.volume;
+              }, 'volumechange')
+            );
+
+            // 监听视频可播放事件，这时恢复播放进度更可靠
+            artPlayerRef.current.on(
+              'video:canplay',
+              createRobustEventHandler((_e: any) => {
+                // 若存在需要恢复的播放进度，则跳转
+                if (resumeTimeRef.current && resumeTimeRef.current > 0) {
+                  try {
+                    const duration = artPlayerRef.current.duration || 0;
+                    let target = resumeTimeRef.current;
+                    if (duration && target >= duration - 2) {
+                      target = Math.max(0, duration - 5);
+                    }
+                    artPlayerRef.current.currentTime = target;
+                    console.log(
+                      '⏭️ 成功恢复播放进度到:',
+                      resumeTimeRef.current
+                    );
+                  } catch (err) {
+                    console.warn('⚠️ 恢复播放进度失败:', err);
+                  }
+                }
+                resumeTimeRef.current = null;
+
+                setTimeout(() => {
+                  if (
+                    Math.abs(
+                      artPlayerRef.current.volume - lastVolumeRef.current
+                    ) > 0.01
+                  ) {
+                    artPlayerRef.current.volume = lastVolumeRef.current;
+                  }
+                  const notice = (artPlayerRef.current as any).notice;
+                  if (notice && typeof notice.show === 'function') {
+                    notice.show('');
+                  }
+                }, 0);
+
+                // 隐藏换源加载状态
+                setIsVideoLoading(false);
+              }, 'canplay')
+            );
+
+            artPlayerRef.current.on(
+              'error',
+              createRobustEventHandler((err: any) => {
+                // 特别处理AbortError，防止播放器卡死
+                if (
+                  err?.name === 'AbortError' ||
+                  (err?.message && err.message.includes('AbortError'))
+                ) {
+                  console.warn('检测到AbortError，尝试恢复播放状态');
+                  // 重置播放器状态
+                  stuckCountRef.current = 0;
+                  isSeekingRef.current = false;
+                  seekCooldownUntilRef.current = 0;
+
+                  // 尝试重新播放
+                  setTimeout(() => {
+                    if (artPlayerRef.current && artPlayerRef.current.play) {
+                      artPlayerRef.current.play().catch((playError: any) => {
+                        console.warn('AbortError后重新播放失败:', playError);
+                      });
+                    }
+                  }, 100);
+                  return;
+                }
+                // 提供更详细的错误信息
+                let errorMessage = '播放器错误: ';
+                if (err instanceof Error) {
+                  errorMessage += err.message;
+                } else if (err.type) {
+                  errorMessage += `事件类型: ${err.type}`;
+                } else if (err.code) {
+                  errorMessage += `错误代码: ${err.code}`;
+                } else if (err.target && err.target.error) {
+                  const videoError = err.target.error;
+                  if (videoError) {
+                    errorMessage += `视频错误 - 代码: ${videoError.code}, 消息: ${videoError.message}`;
+                  }
+                } else {
+                  errorMessage += '未知错误';
+                }
+
+                console.error('❌', errorMessage, err);
+
+                // 如果是视频元素错误，提供更具体的处理
+                if (err.target && err.target.error) {
+                  const videoError = err.target.error;
+                  if (videoError) {
+                    switch (videoError.code) {
+                      case 1: // MEDIA_ERR_ABORTED
+                        console.log('播放被中止');
+                        break;
+                      case 2: // MEDIA_ERR_NETWORK
+                        console.log('网络错误，尝试重新加载');
+                        if (artPlayerRef.current) {
+                          artPlayerRef.current.load();
+                        }
+                        break;
+                      case 3: // MEDIA_ERR_DECODE
+                        console.log('解码错误');
+                        break;
+                      case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+                        console.log('不支持的媒体格式');
+                        break;
+                      default:
+                        console.log('未知视频错误');
+                    }
+                  }
+                }
+              }, 'error')
+            );
+          }
+
+          // 恢复播放状态
+          if (currentTime > 0) {
+            setTimeout(() => {
+              if (artPlayerRef.current) {
+                artPlayerRef.current.currentTime = currentTime;
+                console.log('⏭️ 恢复播放进度到:', currentTime);
+              }
+            }, 1000);
+          }
+
+          console.log('✅ 播放器实例重建完成');
+        }
+      }, 500); // 延迟500ms确保完全清理
+    };
+
     window.onerror = (message, source, lineno, colno, error) => {
       const messageStr = String(message || '');
+
+      // 检测 composedPath 错误并触发重建
+      if (isComposedPathError(messageStr)) {
+        console.warn(
+          '🚨 检测到 composedPath 错误，触发播放器重建:',
+          messageStr
+        );
+        rebuildPlayer();
+        return true; // 阻止错误继续传播
+      }
+
       if (shouldSilenceError(messageStr)) {
         console.warn('静默处理兼容性错误:', messageStr);
         return true; // 阻止错误继续传播
@@ -1700,6 +2113,18 @@ function PlayPageClient() {
       const reasonStr = reason
         ? String(reason.message || reason.toString?.() || reason)
         : '';
+
+      // 检测 composedPath 错误并触发重建
+      if (isComposedPathError(reasonStr)) {
+        console.warn(
+          '🚨 检测到 composedPath Promise 错误，触发播放器重建:',
+          reasonStr
+        );
+        rebuildPlayer();
+        event.preventDefault();
+        return;
+      }
+
       if (shouldSilenceError(reasonStr)) {
         console.warn('静默处理兼容性Promise错误:', reasonStr);
         event.preventDefault();
@@ -2026,127 +2451,6 @@ function PlayPageClient() {
           }
         }
       }
-
-      // 定义一个更安全的事件处理包装器，专门用于处理可能频繁触发的事件
-      const createRobustEventHandler = (
-        handler: (e: any) => void,
-        eventName = ''
-      ) => {
-        return function (this: any, event: any) {
-          try {
-            // 基础事件对象验证
-            if (!event || typeof event !== 'object') {
-              console.warn(`事件处理警告: 接收到无效的事件对象 (${eventName})`);
-              return;
-            }
-
-            // 为事件对象提供安全的composedPath方法（如果缺失）
-            if (typeof event.composedPath !== 'function') {
-              // 创建更安全的composedPath实现
-              const safeComposedPath = function (this: any) {
-                try {
-                  // 检查this是否存在且有效
-                  if (!this || typeof this !== 'object') {
-                    return [];
-                  }
-
-                  const path: any[] = [];
-                  let current = this.target;
-
-                  // 添加安全检查防止循环和访问错误
-                  let iterations = 0;
-                  const maxIterations = 100;
-
-                  // 确保current存在且有nodeType属性
-                  while (
-                    current &&
-                    typeof current === 'object' &&
-                    current.nodeType &&
-                    iterations < maxIterations
-                  ) {
-                    // 避免重复添加同一个元素
-                    if (!path.includes(current)) {
-                      path.push(current);
-                    }
-
-                    // 更安全的父节点访问
-                    const nextParent =
-                      current.parentNode ||
-                      current.host ||
-                      current.parentElement;
-
-                    // 检查是否存在循环引用或无效引用
-                    if (
-                      !nextParent ||
-                      nextParent === current ||
-                      nextParent === window ||
-                      nextParent === document
-                    ) {
-                      break;
-                    }
-
-                    current = nextParent;
-                    iterations++;
-                  }
-
-                  // 添加document和window到路径末尾（如果不在路径中）
-                  if (path.length > 0) {
-                    if (
-                      typeof document !== 'undefined' &&
-                      !path.includes(document)
-                    ) {
-                      path.push(document);
-                    }
-                    if (
-                      typeof window !== 'undefined' &&
-                      !path.includes(window)
-                    ) {
-                      path.push(window);
-                    }
-                  }
-
-                  return path;
-                } catch (e) {
-                  // 在任何错误情况下都返回空数组而不是抛出异常
-                  console.warn('composedPath执行错误，返回空数组:', e);
-                  return [];
-                }
-              };
-
-              // 安全地定义composedPath属性
-              try {
-                Object.defineProperty(event, 'composedPath', {
-                  value: safeComposedPath,
-                  writable: false,
-                  enumerable: false,
-                  configurable: true,
-                });
-              } catch (defineError) {
-                // 如果无法定义属性，使用替代方案
-                console.warn(
-                  '无法为事件对象定义composedPath方法，使用替代方案:',
-                  defineError
-                );
-                // 为事件对象添加一个安全的替代方法
-                (event as any).safeComposedPath = safeComposedPath;
-              }
-            }
-
-            // 调用原始处理器
-            return handler.call(this, event);
-          } catch (error) {
-            const errorMessage = String((error as any)?.message || error || '');
-            if (shouldSilenceError(errorMessage)) {
-              console.warn(
-                `🔇 事件处理中的兼容性错误已静默 (${eventName}):`,
-                errorMessage
-              );
-            } else {
-              console.error(`❌ 事件处理错误 (${eventName}):`, error);
-            }
-          }
-        };
-      };
 
       // 增强的事件安全包装器函数 (备用)
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -3309,6 +3613,9 @@ function PlayPageClient() {
       }
       if (playbackRecoveryRef.current) {
         clearTimeout(playbackRecoveryRef.current);
+      }
+      if (rebuildTimeoutRef.current) {
+        clearTimeout(rebuildTimeoutRef.current);
       }
 
       // 确保播放器完全销毁
