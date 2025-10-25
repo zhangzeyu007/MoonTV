@@ -196,7 +196,7 @@ export default function RealTimeMetricsComponent({
                 : 'text-red-600'
             }`}
           >
-            {metrics.latency}ms
+            {metrics.latency.toFixed(2)}ms
           </p>
         </div>
 

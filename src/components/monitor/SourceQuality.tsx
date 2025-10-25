@@ -241,7 +241,7 @@ export default function SourceQualityComponent({
                   : 'text-red-600'
               }`}
             >
-              {metrics.latency}ms
+              {metrics.latency.toFixed(2)}ms
             </span>
           </div>
 

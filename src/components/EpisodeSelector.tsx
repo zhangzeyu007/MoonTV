@@ -581,7 +581,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                                         {videoInfo.loadSpeed}
                                       </div>
                                       <div className='text-orange-600 dark:text-orange-400 font-medium text-xs'>
-                                        {videoInfo.pingTime}ms
+                                        {videoInfo.pingTime.toFixed(2)}ms
                                       </div>
                                     </div>
                                   );

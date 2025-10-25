@@ -247,7 +247,7 @@ export default function RealTimeRequestMonitor({
                 : 'text-red-600'
             }`}
           >
-            {metrics.latency}ms
+            {metrics.latency.toFixed(2)}ms
           </p>
           <p className='text-xs text-gray-500 dark:text-gray-400'>延迟</p>
         </div>
@@ -333,7 +333,9 @@ export default function RealTimeRequestMonitor({
                     )}
                   </div>
                   <div className='text-sm text-gray-600 dark:text-gray-400'>
-                    {source.available ? `${source.pingTime}ms` : '不可用'}
+                    {source.available
+                      ? `${source.pingTime.toFixed(2)}ms`
+                      : '不可用'}
                   </div>
                 </div>
               </div>

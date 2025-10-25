@@ -402,6 +402,8 @@ function PlayPageClient() {
       const endTime = performance.now();
       const duration = endTime - startTime;
       const avgDuration = duration / 3; // 平均响应时间
+      const latency = avgDuration; // 使用平均响应时间作为延迟
+      const bandwidth = 1000000; // 默认带宽估算，后续可以基于实际测试优化
 
       // 根据响应时间判断网络质量
       let quality: 'excellent' | 'good' | 'fair' | 'poor' = 'good';
@@ -417,6 +419,15 @@ function PlayPageClient() {
 
       setNetworkQuality(quality);
       networkQualityRef.current = quality;
+
+      // 将网络质量数据传递给性能监控系统
+      performanceMonitor.recordNetworkQuality({
+        latency: latency,
+        bandwidth: bandwidth,
+        packetLoss: 0, // 暂时设为0，后续可以添加丢包检测
+        jitter: 0, // 暂时设为0，后续可以添加抖动检测
+        quality: quality,
+      });
 
       // 根据网络质量调整播放器配置
       if (artPlayerRef.current?.video?.hls) {
@@ -1294,10 +1305,20 @@ function PlayPageClient() {
       performanceMonitor.recordSelectedSource(detailData.source_name || '');
 
       // 记录实时监控数据
+      // 检查CDN优化状态：通过检查URL是否包含CDN标识
+      const currentUrl = detailData.source_name || '';
+      const cdnOptimized =
+        currentUrl.includes('cdn') ||
+        currentUrl.includes('cloudflare') ||
+        currentUrl.includes('fastly');
+
+      // 检查缓存命中：通过检查加载时间是否很短
+      const cacheHit = totalLoadTime < 1000; // 如果总加载时间少于1秒，认为可能使用了缓存
+
       performanceMonitor.recordCurrentSource(
-        detailData.source_name || '',
-        false, // CDN优化状态，这里需要根据实际情况判断
-        false // 缓存命中状态，这里需要根据实际情况判断
+        currentUrl,
+        cdnOptimized,
+        cacheHit
       );
 
       const metrics = performanceMonitor.endSession();
@@ -3068,6 +3089,15 @@ function PlayPageClient() {
                     this.calculateConnectionSpeed(response);
                   this.qualityScore = this.calculateQualityScore();
 
+                  // 将网络质量数据传递给性能监控系统
+                  performanceMonitor.recordNetworkQuality({
+                    latency: this.latency,
+                    bandwidth: this.connectionSpeed,
+                    packetLoss: 0,
+                    jitter: 0,
+                    quality: this.getQualityFromScore(this.qualityScore),
+                  });
+
                   console.log(
                     `网络质量检测: 延迟=${this.latency.toFixed(2)}ms, 速度=${(
                       this.connectionSpeed /
@@ -3107,6 +3137,15 @@ function PlayPageClient() {
                 else if (this.connectionSpeed < 1000000) score -= 0.1; // < 1MB/s
 
                 return Math.max(0.1, Math.min(1.0, score));
+              },
+
+              getQualityFromScore(
+                score: number
+              ): 'excellent' | 'good' | 'fair' | 'poor' {
+                if (score > 0.8) return 'excellent';
+                else if (score > 0.6) return 'good';
+                else if (score > 0.4) return 'fair';
+                else return 'poor';
               },
 
               getAdaptiveConfig() {
@@ -3722,6 +3761,15 @@ function PlayPageClient() {
                 break;
               }
             }
+          }
+
+          // 计算缓冲健康度并传递给性能监控系统
+          if (duration > 0) {
+            const bufferHealth = Math.min(
+              1,
+              Math.max(0, totalBuffered / duration)
+            );
+            performanceMonitor.recordBufferHealth(bufferHealth);
           }
 
           // 动态调整缓冲策略

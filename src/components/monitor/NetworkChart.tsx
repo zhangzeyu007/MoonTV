@@ -135,9 +135,9 @@ export default function NetworkChart({
                 style={{
                   height: `${(metric.latency / maxLatency) * 100}%`,
                 }}
-                title={`${new Date(metric.timestamp).toLocaleTimeString()}: ${
-                  metric.latency
-                }ms`}
+                title={`${new Date(
+                  metric.timestamp
+                ).toLocaleTimeString()}: ${metric.latency.toFixed(2)}ms`}
               ></div>
             ))}
           </div>

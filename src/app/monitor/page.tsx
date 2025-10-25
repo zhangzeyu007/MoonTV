@@ -148,7 +148,7 @@ function MonitorPageContent() {
             <div className='mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm'>
               <div className='text-center'>
                 <p className='font-semibold text-gray-900 dark:text-white'>
-                  {realTimeMetrics.latency}ms
+                  {realTimeMetrics.latency.toFixed(2)}ms
                 </p>
                 <p className='text-xs text-gray-500 dark:text-gray-400'>延迟</p>
               </div>

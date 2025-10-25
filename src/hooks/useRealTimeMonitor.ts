@@ -148,6 +148,21 @@ export function useRealTimeMonitor() {
     }
   }, []);
 
+  // 测试实时数据准确性
+  const testDataAccuracy = useCallback(() => {
+    try {
+      return performanceMonitor.testRealTimeDataAccuracy();
+    } catch (err) {
+      console.error('测试数据准确性失败:', err);
+      return {
+        bufferHealthValid: false,
+        latencyValid: false,
+        networkQualityValid: false,
+        recommendations: ['测试失败，请检查监控系统状态'],
+      };
+    }
+  }, []);
+
   return {
     realTimeMetrics,
     historicalMetrics,
@@ -159,6 +174,7 @@ export function useRealTimeMonitor() {
     refreshData,
     clearAllData,
     getPerformanceReport,
+    testDataAccuracy,
   };
 }
 

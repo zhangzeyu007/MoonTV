@@ -425,16 +425,51 @@ class PerformanceMonitor {
   private updateRealTimeMetrics(): void {
     if (!this.isMonitoring) return;
 
+    // 获取当前时间戳
+    const now = Date.now();
+
+    // 计算缓冲健康度的动态值（如果当前值为0，尝试从历史数据中获取）
+    let bufferHealth = this.currentRealTimeSession.bufferHealth || 0;
+    if (bufferHealth === 0 && this.realTimeMetrics.length > 0) {
+      // 如果当前缓冲健康度为0，使用最近一次的有效值
+      const recentMetrics = this.realTimeMetrics.slice(-5);
+      const lastValidBuffer = recentMetrics.find((m) => m.bufferHealth > 0);
+      if (lastValidBuffer) {
+        bufferHealth = lastValidBuffer.bufferHealth;
+      }
+    }
+
+    // 计算延迟的动态值
+    let latency = this.currentRealTimeSession.latency || 0;
+    if (latency === 0 && this.realTimeMetrics.length > 0) {
+      // 如果当前延迟为0，使用最近一次的有效值
+      const recentMetrics = this.realTimeMetrics.slice(-5);
+      const lastValidLatency = recentMetrics.find((m) => m.latency > 0);
+      if (lastValidLatency) {
+        latency = lastValidLatency.latency;
+      }
+    }
+
+    // 计算网络质量的动态值
+    let networkQuality = this.currentRealTimeSession.networkQuality || 'good';
+    if (latency > 0) {
+      // 根据延迟动态调整网络质量
+      if (latency < 100) networkQuality = 'excellent';
+      else if (latency < 300) networkQuality = 'good';
+      else if (latency < 500) networkQuality = 'fair';
+      else networkQuality = 'poor';
+    }
+
     const metrics: RealTimeMetrics = {
-      timestamp: Date.now(),
+      timestamp: now,
       playerStatus: this.currentRealTimeSession.playerStatus || 'loading',
-      networkQuality: this.currentRealTimeSession.networkQuality || 'good',
+      networkQuality: networkQuality,
       currentSource: this.currentRealTimeSession.currentSource || '',
-      bufferHealth: this.currentRealTimeSession.bufferHealth || 0,
+      bufferHealth: bufferHealth,
       playbackRate: this.currentRealTimeSession.playbackRate || 1,
       cdnOptimized: this.currentRealTimeSession.cdnOptimized || false,
       cacheHit: this.currentRealTimeSession.cacheHit || false,
-      latency: this.currentRealTimeSession.latency || 0,
+      latency: latency,
       bandwidth: this.currentRealTimeSession.bandwidth || 0,
       errorCount: this.currentRealTimeSession.errorCount || 0,
       retryCount: this.currentRealTimeSession.retryCount || 0,
@@ -476,6 +511,8 @@ class PerformanceMonitor {
     this.currentRealTimeSession.networkQuality = quality.quality;
     this.currentRealTimeSession.latency = quality.latency;
     this.currentRealTimeSession.bandwidth = quality.bandwidth;
+    // 立即更新实时指标
+    this.updateRealTimeMetrics();
   }
 
   /**
@@ -532,6 +569,8 @@ class PerformanceMonitor {
    */
   recordBufferHealth(health: number): void {
     this.currentRealTimeSession.bufferHealth = Math.max(0, Math.min(1, health));
+    // 立即更新实时指标
+    this.updateRealTimeMetrics();
   }
 
   /**
@@ -717,6 +756,74 @@ class PerformanceMonitor {
     return {
       isMonitoring: this.isMonitoring,
       isUserControlled: this.isUserControlled,
+    };
+  }
+
+  /**
+   * 测试实时监控数据准确性
+   */
+  testRealTimeDataAccuracy(): {
+    bufferHealthValid: boolean;
+    latencyValid: boolean;
+    networkQualityValid: boolean;
+    recommendations: string[];
+  } {
+    const recommendations: string[] = [];
+    let bufferHealthValid = false;
+    let latencyValid = false;
+    let networkQualityValid = false;
+
+    // 检查缓冲健康度数据
+    if (
+      this.currentRealTimeSession.bufferHealth !== undefined &&
+      this.currentRealTimeSession.bufferHealth >= 0 &&
+      this.currentRealTimeSession.bufferHealth <= 1
+    ) {
+      bufferHealthValid = true;
+    } else {
+      recommendations.push('缓冲健康度数据异常，请检查播放器缓冲状态');
+    }
+
+    // 检查延迟数据
+    if (
+      this.currentRealTimeSession.latency !== undefined &&
+      this.currentRealTimeSession.latency >= 0
+    ) {
+      latencyValid = true;
+    } else {
+      recommendations.push('延迟数据异常，请检查网络连接状态');
+    }
+
+    // 检查网络质量数据
+    const validQualities = ['excellent', 'good', 'fair', 'poor'];
+    if (
+      this.currentRealTimeSession.networkQuality &&
+      validQualities.includes(this.currentRealTimeSession.networkQuality)
+    ) {
+      networkQualityValid = true;
+    } else {
+      recommendations.push('网络质量数据异常，请检查网络质量检测逻辑');
+    }
+
+    // 检查历史数据的一致性
+    if (this.realTimeMetrics.length > 0) {
+      const recentMetrics = this.realTimeMetrics.slice(-5);
+      const hasValidBuffer = recentMetrics.some((m) => m.bufferHealth > 0);
+      const hasValidLatency = recentMetrics.some((m) => m.latency > 0);
+
+      if (!hasValidBuffer) {
+        recommendations.push('历史缓冲数据缺失，建议检查播放器集成');
+      }
+      if (!hasValidLatency) {
+        recommendations.push('历史延迟数据缺失，建议检查网络质量检测');
+      }
+    }
+
+    return {
+      bufferHealthValid,
+      latencyValid,
+      networkQualityValid,
+      recommendations,
     };
   }
 

@@ -154,7 +154,7 @@ export default function SourceRequestMonitor({
               {metrics.currentSource}
             </div>
             <div className='flex items-center gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400'>
-              <span>延迟: {metrics.latency}ms</span>
+              <span>延迟: {metrics.latency.toFixed(2)}ms</span>
               <span>质量: {metrics.networkQuality}</span>
               {metrics.cdnOptimized && (
                 <span className='text-green-600'>CDN优化</span>
@@ -204,7 +204,9 @@ export default function SourceRequestMonitor({
                   )}
                 </div>
                 <div className='flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400'>
-                  {source.available && <span>延迟: {source.pingTime}ms</span>}
+                  {source.available && (
+                    <span>延迟: {source.pingTime.toFixed(2)}ms</span>
+                  )}
                   <span>质量: {source.quality}</span>
                 </div>
               </div>

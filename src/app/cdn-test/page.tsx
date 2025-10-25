@@ -176,7 +176,7 @@ export default function CDNOptimizationTestPage() {
               </p>
               <p>
                 <strong>预估延迟:</strong>{' '}
-                {cdnRecommendation.estimatedLatency.toFixed(0)}ms
+                {cdnRecommendation.estimatedLatency.toFixed(2)}ms
               </p>
               <p>
                 <strong>距离:</strong> {cdnRecommendation.distance.toFixed(1)}km
@@ -233,7 +233,7 @@ export default function CDNOptimizationTestPage() {
               <div className='bg-gray-50 p-3 rounded'>
                 <p className='text-sm text-gray-600'>平均延迟</p>
                 <p className='font-semibold'>
-                  {testResults.performanceMetrics.averageLatency}ms
+                  {testResults.performanceMetrics.averageLatency.toFixed(2)}ms
                 </p>
               </div>
               <div className='bg-gray-50 p-3 rounded'>
