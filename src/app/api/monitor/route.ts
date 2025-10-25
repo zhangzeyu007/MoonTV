@@ -9,6 +9,9 @@ import { performanceMonitor } from '@/lib/performance-monitor';
  * 提供实时监控数据、历史数据查询和配置管理
  */
 
+// 配置为使用 Edge Runtime
+export const runtime = 'edge';
+
 // GET - 获取监控数据
 export async function GET(request: NextRequest) {
   try {
