@@ -190,6 +190,24 @@ function PlayPageClient() {
     suggestion: string;
   } | null>(null);
 
+  // 增强的提示冷却机制
+  const [lastNotificationTime, setLastNotificationTime] = useState(0);
+  const [hasShownRecoveryNotification, setHasShownRecoveryNotification] =
+    useState(false);
+  const [lastErrorTime, setLastErrorTime] = useState(0);
+  const [consecutiveErrorCount, setConsecutiveErrorCount] = useState(0);
+
+  // 防抖相关
+  const notificationDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const errorDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 动态冷却时间：根据错误频率调整
+  const getNotificationCooldown = () => {
+    if (consecutiveErrorCount > 5) return 30000; // 30秒
+    if (consecutiveErrorCount > 3) return 20000; // 20秒
+    return 15000; // 15秒
+  };
+
   // 网络状态监控
   const [networkStatus, setNetworkStatus] = useState<
     'online' | 'offline' | 'unstable'
@@ -427,18 +445,67 @@ function PlayPageClient() {
     }
   }, []);
 
+  // 网络质量检测定时器引用
+  const networkQualityIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const networkMonitorIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [isPageVisible, setIsPageVisible] = useState(true);
+
+  // 页面可见性检测
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const visible = !document.hidden;
+      setIsPageVisible(visible);
+
+      // 当页面变为不可见时，暂停网络监控
+      if (!visible) {
+        console.log('页面不可见，暂停网络监控');
+        // 清理网络监控定时器
+        if (networkQualityIntervalRef.current) {
+          clearInterval(networkQualityIntervalRef.current);
+          networkQualityIntervalRef.current = null;
+        }
+        if (networkMonitorIntervalRef.current) {
+          clearInterval(networkMonitorIntervalRef.current);
+          networkMonitorIntervalRef.current = null;
+        }
+      } else {
+        console.log('页面可见，恢复网络监控');
+        // 页面变为可见时，重新启动网络质量检测
+        if (!networkQualityIntervalRef.current) {
+          checkNetworkQuality();
+          networkQualityIntervalRef.current = setInterval(
+            checkNetworkQuality,
+            30000
+          );
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [checkNetworkQuality]);
+
   // 定期检测网络质量
   useEffect(() => {
+    // 只在页面可见时进行检测
+    if (!isPageVisible) return;
+
     // 初始检测
     checkNetworkQuality();
 
     // 每30秒检测一次网络质量
-    const interval = setInterval(checkNetworkQuality, 30000);
+    networkQualityIntervalRef.current = setInterval(checkNetworkQuality, 30000);
 
     return () => {
-      clearInterval(interval);
+      if (networkQualityIntervalRef.current) {
+        clearInterval(networkQualityIntervalRef.current);
+        networkQualityIntervalRef.current = null;
+      }
     };
-  }, [checkNetworkQuality]);
+  }, [checkNetworkQuality, isPageVisible]);
 
   // 网络恢复时的智能调整
   useEffect(() => {
@@ -476,35 +543,96 @@ function PlayPageClient() {
     }
   }, [networkStatus, checkNetworkQuality]);
 
-  // 监听HLS错误计数，当错误发生时显示提示
+  // 优化的错误提示防抖逻辑
   useEffect(() => {
     if (hlsErrorCount > 0) {
-      setShowHlsErrorTip(true);
-      // 根据错误类型设置不同的显示时间
-      let displayTime = 5000;
-      if (hlsErrorCount > 5) {
-        displayTime = 8000;
-      }
-      if (hlsErrorDetails?.type === '播放失败') {
-        displayTime = 15000; // 播放失败显示15秒，给用户更多时间看到重试按钮
+      const now = Date.now();
+      const cooldown = getNotificationCooldown();
+
+      // 检查是否在冷却期内
+      if (now - lastNotificationTime < cooldown) {
+        return;
       }
 
-      const timer = setTimeout(() => {
-        setShowHlsErrorTip(false);
-        // 延迟清除错误详情，避免闪烁
-        setTimeout(() => {
-          setHlsErrorDetails(null);
-        }, 300);
-      }, displayTime);
-      return () => clearTimeout(timer);
+      // 清除之前的防抖定时器
+      if (notificationDebounceRef.current) {
+        clearTimeout(notificationDebounceRef.current);
+      }
+
+      // 使用防抖机制，避免频繁提示
+      notificationDebounceRef.current = setTimeout(() => {
+        // 再次检查冷却期，防止在防抖期间状态变化
+        const currentTime = Date.now();
+        if (currentTime - lastNotificationTime < cooldown) {
+          return;
+        }
+
+        // 智能错误阈值：根据错误类型和频率决定是否显示
+        const shouldShowNotification =
+          (hlsErrorCount >= 3 && consecutiveErrorCount >= 2) || // 连续错误且总数达到阈值
+          hlsErrorDetails?.type === '播放失败' || // 播放失败总是显示
+          hlsErrorDetails?.type === '网络连接错误' || // 网络错误总是显示
+          hlsErrorDetails?.type === '媒体解码错误' || // 媒体错误总是显示
+          hlsErrorCount >= 5; // 错误次数过多时显示
+
+        if (!shouldShowNotification) {
+          return;
+        }
+
+        setShowHlsErrorTip(true);
+        setLastNotificationTime(currentTime);
+
+        // 根据错误严重程度和频率设置显示时间
+        let displayTime = 4000; // 基础显示时间
+        if (hlsErrorCount > 8) {
+          displayTime = 10000; // 错误过多时显示更久
+        } else if (hlsErrorCount > 5) {
+          displayTime = 7000;
+        }
+
+        if (hlsErrorDetails?.type === '播放失败') {
+          displayTime = 12000; // 播放失败显示12秒
+        }
+
+        const timer = setTimeout(() => {
+          setShowHlsErrorTip(false);
+          // 延迟清除错误详情，避免闪烁
+          setTimeout(() => {
+            setHlsErrorDetails(null);
+          }, 300);
+        }, displayTime);
+
+        return () => clearTimeout(timer);
+      }, 1000); // 1秒防抖延迟
     }
-  }, [hlsErrorCount, hlsErrorDetails]);
+  }, [
+    hlsErrorCount,
+    hlsErrorDetails,
+    lastNotificationTime,
+    consecutiveErrorCount,
+  ]);
 
   // 播放进度保存相关
   const saveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSaveTimeRef = useRef<number>(0);
   const isSeekingRef = useRef<boolean>(false);
   const saveProgressDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 清理所有定时器的函数
+  const cleanupTimers = () => {
+    if (notificationDebounceRef.current) {
+      clearTimeout(notificationDebounceRef.current);
+      notificationDebounceRef.current = null;
+    }
+    if (errorDebounceRef.current) {
+      clearTimeout(errorDebounceRef.current);
+      errorDebounceRef.current = null;
+    }
+    if (saveProgressDebounceRef.current) {
+      clearTimeout(saveProgressDebounceRef.current);
+      saveProgressDebounceRef.current = null;
+    }
+  };
   // 拖拽后的短冷却时间戳（毫秒），在此之前跳过 heavy 逻辑，避免卡顿
   const seekCooldownUntilRef = useRef<number>(0);
 
@@ -1514,6 +1642,9 @@ function PlayPageClient() {
   // 清理定时器
   useEffect(() => {
     return () => {
+      // 清理所有定时器
+      cleanupTimers();
+
       if (saveIntervalRef.current) {
         clearInterval(saveIntervalRef.current);
       }
@@ -2833,8 +2964,10 @@ function PlayPageClient() {
               }
             };
 
-            // 开始网络监控
-            startNetworkMonitoring();
+            // 开始网络监控（只在页面可见时）
+            if (isPageVisible) {
+              startNetworkMonitoring();
+            }
 
             // 网络质量检测和自适应播放
             const networkQualityMonitor = {
@@ -2922,7 +3055,7 @@ function PlayPageClient() {
             };
 
             // 定期检测网络质量并调整配置
-            setInterval(async () => {
+            networkMonitorIntervalRef.current = setInterval(async () => {
               const quality =
                 await networkQualityMonitor.measureNetworkQuality();
               const adaptiveConfig = networkQualityMonitor.getAdaptiveConfig();
@@ -2939,8 +3072,31 @@ function PlayPageClient() {
             hls.on(Hls.Events.ERROR, function (event: any, data: any) {
               console.error('HLS Error:', event, data);
 
-              // 增加错误计数
-              setHlsErrorCount((prev) => prev + 1);
+              const now = Date.now();
+
+              // 清除之前的错误防抖定时器
+              if (errorDebounceRef.current) {
+                clearTimeout(errorDebounceRef.current);
+              }
+
+              // 使用防抖机制处理错误计数
+              errorDebounceRef.current = setTimeout(() => {
+                // 检查是否为连续错误
+                const timeSinceLastError = now - lastErrorTime;
+                const isConsecutiveError = timeSinceLastError < 5000; // 5秒内认为是连续错误
+
+                // 更新连续错误计数
+                setConsecutiveErrorCount((prev) =>
+                  isConsecutiveError ? prev + 1 : 1
+                );
+                setLastErrorTime(now);
+
+                // 增加错误计数
+                setHlsErrorCount((prev) => prev + 1);
+
+                // 重置恢复提示标志，允许下次显示恢复提示
+                setHasShownRecoveryNotification(false);
+              }, 500); // 500ms防抖延迟
 
               // 设置详细的错误信息
               let errorType = '未知错误';
@@ -3212,22 +3368,39 @@ function PlayPageClient() {
             // 监听成功事件，重置错误计数器
             hls.on(Hls.Events.FRAG_LOADED, function () {
               errorRetryCount = 0; // 重置错误计数器
-              // 如果之前有错误，显示恢复成功提示
-              if (hlsErrorCount > 0) {
-                setHlsErrorDetails({
-                  type: '播放恢复',
-                  message: '视频播放已恢复正常',
-                  suggestion: '问题已自动解决',
-                });
-                setShowHlsErrorTip(true);
-                // 2秒后隐藏成功提示
-                setTimeout(() => {
-                  setShowHlsErrorTip(false);
-                  setTimeout(() => {
-                    setHlsErrorDetails(null);
-                    setHlsErrorCount(0);
-                  }, 300);
-                }, 2000);
+
+              // 优化的恢复提示逻辑：更严格的恢复条件
+              if (hlsErrorCount > 0 && !hasShownRecoveryNotification) {
+                const now = Date.now();
+                const cooldown = getNotificationCooldown();
+
+                // 检查是否在冷却期内，避免频繁提示
+                if (now - lastNotificationTime >= cooldown) {
+                  // 只有在连续错误后成功恢复时才显示提示
+                  if (consecutiveErrorCount >= 2 || hlsErrorCount >= 3) {
+                    setHlsErrorDetails({
+                      type: '播放恢复',
+                      message: '视频播放已恢复正常',
+                      suggestion: '问题已自动解决',
+                    });
+                    setShowHlsErrorTip(true);
+                    setLastNotificationTime(now);
+                    setHasShownRecoveryNotification(true);
+
+                    // 1.5秒后隐藏成功提示，减少干扰
+                    setTimeout(() => {
+                      setShowHlsErrorTip(false);
+                      setTimeout(() => {
+                        setHlsErrorDetails(null);
+                        // 延迟重置错误计数，避免立即触发新的错误提示
+                        setTimeout(() => {
+                          setHlsErrorCount(0);
+                          setConsecutiveErrorCount(0);
+                        }, 1000);
+                      }, 300);
+                    }, 1500);
+                  }
+                }
               }
             });
 
@@ -3861,6 +4034,16 @@ function PlayPageClient() {
       }
       if (rebuildTimeoutRef.current) {
         clearTimeout(rebuildTimeoutRef.current);
+      }
+
+      // 清理网络监控定时器
+      if (networkQualityIntervalRef.current) {
+        clearInterval(networkQualityIntervalRef.current);
+        networkQualityIntervalRef.current = null;
+      }
+      if (networkMonitorIntervalRef.current) {
+        clearInterval(networkMonitorIntervalRef.current);
+        networkMonitorIntervalRef.current = null;
       }
 
       // 确保播放器完全销毁

@@ -202,13 +202,16 @@ const FloatingToggleButton = () => {
           if (isPendingDrag && (deltaX > threshold || deltaY > threshold)) {
             setIsDragging(true);
             setHasMoved(true);
+            // 只有在真正开始拖拽时才阻止默认行为
+            e.preventDefault();
           } else {
             // 未超过阈值，不拦截，允许原生滚动
             return;
           }
+        } else {
+          // iOS 已进入拖拽状态，阻止默认行为
+          e.preventDefault();
         }
-        // iOS 已进入拖拽后再阻止默认行为
-        e.preventDefault();
       } else {
         if (!isDragging) return;
         if (deltaX > threshold || deltaY > threshold) {
@@ -248,7 +251,7 @@ const FloatingToggleButton = () => {
     setActiveTouchId(null);
   }, []);
 
-  // 添加全局事件监听器（分阶段、分被动性以降低对播放器的影响）
+  // 添加全局事件监听器
   useEffect(() => {
     // 鼠标：仅在拖拽中监听
     if (isDragging) {
@@ -256,31 +259,11 @@ const FloatingToggleButton = () => {
       document.addEventListener('mouseup', handleMouseUp);
     }
 
-    // 触摸分两种阶段：
-    // - 待定阶段（如 iOS 上阈值判断）：使用 passive: true，不拦截默认行为，避免影响滚动/播放器
-    // - 实际拖拽阶段：使用 passive: false，允许在需要时 preventDefault 以平滑拖拽
-
-    // 待定阶段监听（仅当待定但未进入拖拽时）
-    const attachPendingTouchListeners = isPendingDrag && !isDragging;
-    if (attachPendingTouchListeners) {
-      document.addEventListener('touchmove', handleTouchMove, {
-        passive: true,
-      });
-      document.addEventListener('touchend', handleTouchEnd, { passive: true });
-      document.addEventListener('touchcancel', handleTouchCancel, {
-        passive: true,
-      });
-    }
-
-    // 实际拖拽阶段监听
-    if (isDragging) {
-      document.addEventListener('touchmove', handleTouchMove, {
-        passive: false,
-      });
-      document.addEventListener('touchend', handleTouchEnd, { passive: false });
-      document.addEventListener('touchcancel', handleTouchCancel, {
-        passive: false,
-      });
+    // 触摸事件监听：统一使用非 passive 模式，在 handleTouchMove 中根据情况决定是否 preventDefault
+    if (isPendingDrag || isDragging) {
+      document.addEventListener('touchmove', handleTouchMove);
+      document.addEventListener('touchend', handleTouchEnd);
+      document.addEventListener('touchcancel', handleTouchCancel);
     }
 
     return () => {
