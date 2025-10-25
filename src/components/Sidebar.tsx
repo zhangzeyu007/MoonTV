@@ -1,6 +1,6 @@
 'use client';
 
-import { Clover, Film, Home, Menu, Search, Tv } from 'lucide-react';
+import { Activity, Clover, Film, Home, Menu, Search, Tv } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -137,6 +137,11 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
       icon: Clover,
       label: '综艺',
       href: '/douban?type=show',
+    },
+    {
+      icon: Activity,
+      label: '性能监控',
+      href: '/monitor',
     },
   ];
 

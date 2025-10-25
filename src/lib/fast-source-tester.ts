@@ -2,17 +2,22 @@
 
 /**
  * 快速播放源测试器
- * 提供更快的播放源测试和选择机制
+ * 提供更快的播放源测试和选择机制，集成CDN优化功能
  */
+
+import { CDNOptimizedSource, cdnOptimizer } from './cdn-optimizer';
 
 export interface FastTestResult {
   url: string;
+  originalUrl?: string; // 原始URL（如果经过CDN优化）
   available: boolean;
   pingTime: number;
   quality?: string;
   loadSpeed?: string;
   score: number;
   testTime: number;
+  cdnOptimized?: boolean;
+  cdnInfo?: CDNOptimizedSource;
 }
 
 export interface SourceTestConfig {
@@ -21,6 +26,8 @@ export interface SourceTestConfig {
   detailedTestTimeout: number;
   enableCache: boolean;
   cacheExpiry: number;
+  enableCDNOptimization: boolean;
+  cdnWeight: number; // CDN优化权重 (0-1)
 }
 
 const DEFAULT_CONFIG: SourceTestConfig = {
@@ -29,6 +36,8 @@ const DEFAULT_CONFIG: SourceTestConfig = {
   detailedTestTimeout: 5000,
   enableCache: true,
   cacheExpiry: 10 * 60 * 1000, // 10分钟
+  enableCDNOptimization: true,
+  cdnWeight: 0.3, // CDN优化权重30%
 };
 
 class FastSourceTester {
@@ -79,9 +88,12 @@ class FastSourceTester {
   }
 
   /**
-   * 快速测试单个源
+   * 快速测试单个源（集成CDN优化）
    */
-  async quickTestSource(url: string): Promise<FastTestResult> {
+  async quickTestSource(
+    url: string,
+    enableCDNOptimization = true
+  ): Promise<FastTestResult> {
     const cacheKey = this.getCacheKey(url);
 
     // 检查缓存
@@ -107,13 +119,38 @@ class FastSourceTester {
     const startTime = performance.now();
 
     try {
+      // 如果启用CDN优化，先尝试优化URL
+      let testUrl = url;
+      let cdnInfo: CDNOptimizedSource | undefined;
+      let cdnOptimized = false;
+
+      if (enableCDNOptimization && this.config.enableCDNOptimization) {
+        try {
+          const optimizedSources = await cdnOptimizer.optimizeSources([
+            { source: null, episodeUrl: url },
+          ]);
+          if (
+            optimizedSources.length > 0 &&
+            optimizedSources[0].optimizedUrl &&
+            optimizedSources[0].cdnInfo
+          ) {
+            testUrl = optimizedSources[0].optimizedUrl;
+            cdnInfo = optimizedSources[0].cdnInfo;
+            cdnOptimized = true;
+            console.log(`CDN优化: ${url} -> ${testUrl}`);
+          }
+        } catch (error) {
+          console.warn('CDN优化失败，使用原始URL:', error);
+        }
+      }
+
       const controller = new AbortController();
       const timeoutId = setTimeout(
         () => controller.abort(),
         this.config.quickTestTimeout
       );
 
-      const response = await fetch(url, {
+      const response = await fetch(testUrl, {
         method: 'HEAD',
         mode: 'cors',
         signal: controller.signal,
@@ -128,12 +165,24 @@ class FastSourceTester {
       clearTimeout(timeoutId);
       const pingTime = performance.now() - startTime;
 
+      // 计算综合评分，包含CDN优化权重
+      let score = this.calculateQuickScore(response.ok, pingTime);
+
+      if (cdnOptimized && cdnInfo) {
+        // CDN优化加分
+        const cdnBonus = Math.min(20, cdnInfo.confidence * 20);
+        score += cdnBonus * this.config.cdnWeight;
+      }
+
       const result: FastTestResult = {
-        url,
+        url: testUrl, // 使用实际测试的URL
+        originalUrl: url, // 保存原始URL
         available: response.ok,
         pingTime: Math.round(pingTime),
-        score: this.calculateQuickScore(response.ok, pingTime),
+        score,
         testTime: Date.now(),
+        cdnOptimized,
+        cdnInfo,
       };
 
       // 缓存结果
@@ -151,6 +200,7 @@ class FastSourceTester {
         pingTime: Math.round(pingTime),
         score: 0,
         testTime: Date.now(),
+        cdnOptimized: false,
       };
 
       // 缓存失败结果
@@ -166,19 +216,87 @@ class FastSourceTester {
   }
 
   /**
-   * 批量快速测试
+   * 批量快速测试（集成CDN优化）
    */
-  async batchQuickTest(urls: string[]): Promise<FastTestResult[]> {
+  async batchQuickTest(
+    urls: string[],
+    enableCDNOptimization = true
+  ): Promise<FastTestResult[]> {
+    if (urls.length === 0) return [];
+
+    console.log(
+      `开始批量快速测试 ${urls.length} 个源${
+        enableCDNOptimization ? '（启用CDN优化）' : ''
+      }`
+    );
+
+    // 如果启用CDN优化，先批量优化所有源
+    let optimizedUrls: string[] = urls;
+    const cdnOptimizationMap: Map<string, CDNOptimizedSource> = new Map();
+
+    if (enableCDNOptimization && this.config.enableCDNOptimization) {
+      try {
+        const sourcesToOptimize = urls.map((url) => ({
+          source: null,
+          episodeUrl: url,
+        }));
+        const optimizedSources = await cdnOptimizer.optimizeSources(
+          sourcesToOptimize
+        );
+
+        optimizedUrls = [];
+        optimizedSources.forEach((optimized, index) => {
+          const originalUrl = urls[index];
+          if (optimized.optimizedUrl && optimized.cdnInfo) {
+            optimizedUrls.push(optimized.optimizedUrl);
+            cdnOptimizationMap.set(optimized.optimizedUrl, optimized.cdnInfo);
+          } else {
+            optimizedUrls.push(originalUrl);
+          }
+        });
+
+        const optimizedCount = optimizedSources.filter(
+          (s) => s.optimizedUrl
+        ).length;
+        console.log(`CDN优化完成: ${optimizedCount}/${urls.length} 个源已优化`);
+      } catch (error) {
+        console.warn('批量CDN优化失败，使用原始URL:', error);
+        optimizedUrls = urls;
+      }
+    }
+
     const results: FastTestResult[] = [];
 
     // 分批处理，控制并发数
     const chunks = [];
-    for (let i = 0; i < urls.length; i += this.config.maxConcurrency) {
-      chunks.push(urls.slice(i, i + this.config.maxConcurrency));
+    for (let i = 0; i < optimizedUrls.length; i += this.config.maxConcurrency) {
+      chunks.push({
+        urls: optimizedUrls.slice(i, i + this.config.maxConcurrency),
+        originalUrls: urls.slice(i, i + this.config.maxConcurrency),
+      });
     }
 
     for (const chunk of chunks) {
-      const promises = chunk.map((url) => this.quickTestSource(url));
+      const promises = chunk.urls.map(async (url, index) => {
+        const originalUrl = chunk.originalUrls[index];
+        const result = await this.quickTestSource(originalUrl, false); // 避免重复优化
+
+        // 如果使用了CDN优化，更新结果信息
+        if (cdnOptimizationMap.has(url)) {
+          const cdnInfo = cdnOptimizationMap.get(url)!;
+          result.url = url;
+          result.originalUrl = originalUrl;
+          result.cdnOptimized = true;
+          result.cdnInfo = cdnInfo;
+
+          // 重新计算评分，包含CDN优化权重
+          const cdnBonus = Math.min(20, cdnInfo.confidence * 20);
+          result.score += cdnBonus * this.config.cdnWeight;
+        }
+
+        return result;
+      });
+
       const chunkResults = await Promise.allSettled(promises);
 
       chunkResults.forEach((result) => {
@@ -187,6 +305,13 @@ class FastSourceTester {
         }
       });
     }
+
+    const availableCount = results.filter((r) => r.available).length;
+    const cdnOptimizedCount = results.filter((r) => r.cdnOptimized).length;
+
+    console.log(
+      `批量测试完成: ${availableCount}/${urls.length} 个源可用，${cdnOptimizedCount} 个源已CDN优化`
+    );
 
     return results;
   }
@@ -260,23 +385,31 @@ class FastSourceTester {
 export const fastSourceTester = new FastSourceTester();
 
 /**
- * 快速播放源优选函数
+ * 快速播放源优选函数（集成CDN优化）
  */
 export async function fastPreferSources(
   sources: Array<{ source: any; episodeUrl: string }>,
-  maxSources = 3
+  maxSources = 3,
+  enableCDNOptimization = true
 ): Promise<
   Array<{ source: any; episodeUrl: string; testResult: FastTestResult }>
 > {
   if (sources.length === 0) return [];
 
-  console.log(`开始快速测试 ${sources.length} 个播放源`);
+  console.log(
+    `开始快速测试 ${sources.length} 个播放源${
+      enableCDNOptimization ? '（启用CDN优化）' : ''
+    }`
+  );
 
   // 提取所有播放地址
   const urls = sources.map((s) => s.episodeUrl);
 
-  // 批量快速测试
-  const testResults = await fastSourceTester.batchQuickTest(urls);
+  // 批量快速测试（集成CDN优化）
+  const testResults = await fastSourceTester.batchQuickTest(
+    urls,
+    enableCDNOptimization
+  );
 
   // 选择最佳源
   const bestResults = fastSourceTester.selectBestSources(
@@ -292,13 +425,20 @@ export async function fastPreferSources(
   }> = [];
 
   sources.forEach(({ source, episodeUrl }) => {
-    const testResult = testResults.find((r) => r.url === episodeUrl);
+    const testResult = testResults.find(
+      (r) => r.url === episodeUrl || r.originalUrl === episodeUrl
+    );
     if (testResult && bestResults.includes(testResult)) {
       results.push({ source, episodeUrl, testResult });
     }
   });
 
-  console.log(`快速测试完成，选择了 ${results.length} 个最佳源`);
+  const cdnOptimizedCount = results.filter(
+    (r) => r.testResult.cdnOptimized
+  ).length;
+  console.log(
+    `快速测试完成，选择了 ${results.length} 个最佳源，${cdnOptimizedCount} 个已CDN优化`
+  );
 
   return results;
 }

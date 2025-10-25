@@ -1,6 +1,6 @@
 'use client';
 
-import { Clover, Film, Home, Search, Tv, X } from 'lucide-react';
+import { Activity, Clover, Film, Home, Search, Tv, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -23,6 +23,7 @@ const NAV_ITEM_KEYS = {
   MOVIE: 'movie',
   TV: 'tv',
   SHOW: 'show',
+  MONITOR: 'monitor',
 } as const;
 
 type NavItemKey = (typeof NAV_ITEM_KEYS)[keyof typeof NAV_ITEM_KEYS];
@@ -70,6 +71,7 @@ const MobileSidebar = ({ isVisible, onClose }: MobileSidebarProps) => {
   const getNavKeyFromPath = (path: string): NavItemKey => {
     if (path === '/') return NAV_ITEM_KEYS.HOME;
     if (path === '/search') return NAV_ITEM_KEYS.SEARCH;
+    if (path === '/monitor') return NAV_ITEM_KEYS.MONITOR;
     if (path.startsWith('/douban')) {
       const type = new URLSearchParams(path.split('?')[1]).get('type');
       switch (type) {
@@ -134,6 +136,12 @@ const MobileSidebar = ({ isVisible, onClose }: MobileSidebarProps) => {
       icon: Clover,
       label: '综艺',
       href: '/douban?type=show',
+    },
+    {
+      key: NAV_ITEM_KEYS.MONITOR,
+      icon: Activity,
+      label: '性能监控',
+      href: '/monitor',
     },
   ];
 

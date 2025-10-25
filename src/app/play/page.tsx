@@ -54,6 +54,24 @@ function PlayPageClient() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);
+
+    // 检查是否需要恢复用户控制的监控
+    if (performanceMonitor.shouldRestoreMonitoring()) {
+      console.log('恢复用户控制的监控状态');
+      performanceMonitor.startRealTimeMonitoring(true);
+    } else {
+      // 启动自动监控（非用户控制）
+      performanceMonitor.startRealTimeMonitoring(false);
+    }
+
+    // 组件卸载时不自动停止监控，让用户控制
+    return () => {
+      // 只停止非用户控制的监控
+      const status = performanceMonitor.getMonitoringStatus();
+      if (!status.isUserControlled) {
+        performanceMonitor.stopRealTimeMonitoring();
+      }
+    };
   }, []);
 
   // -----------------------------------------------------------------------------
@@ -902,8 +920,16 @@ function PlayPageClient() {
     }
 
     try {
-      // 使用快速源测试器进行优选
-      const fastResults = await fastPreferSources(validSources, 3);
+      // 记录源测试开始时间
+      const testStartTime = performance.now();
+
+      // 使用快速源测试器进行优选（启用CDN优化）
+      const fastResults = await fastPreferSources(validSources, 3, true);
+
+      const testEndTime = performance.now();
+
+      // 记录源测试时间
+      performanceMonitor.recordSourceTestTime(testEndTime - testStartTime);
 
       if (fastResults.length === 0) {
         console.warn('快速测试没有找到可用源，使用第一个播放源');
@@ -918,6 +944,8 @@ function PlayPageClient() {
           loadSpeed: string;
           pingTime: number;
           hasError?: boolean;
+          cdnOptimized?: boolean;
+          cdnInfo?: any;
         }
       >();
 
@@ -928,6 +956,8 @@ function PlayPageClient() {
           loadSpeed: testResult.loadSpeed || '未知',
           pingTime: testResult.pingTime,
           hasError: !testResult.available,
+          cdnOptimized: testResult.cdnOptimized,
+          cdnInfo: testResult.cdnInfo,
         });
       });
 
@@ -935,8 +965,11 @@ function PlayPageClient() {
 
       // 选择评分最高的源
       const bestResult = fastResults[0];
+      const cdnInfo = bestResult.testResult.cdnOptimized
+        ? ` (CDN优化: ${bestResult.testResult.cdnInfo?.cdnNode.name})`
+        : '';
       console.log(
-        `快速选择最佳播放源: ${bestResult.source.source_name} (评分: ${bestResult.testResult.score})`
+        `快速选择最佳播放源: ${bestResult.source.source_name} (评分: ${bestResult.testResult.score})${cdnInfo}`
       );
       return bestResult.source;
     } catch (error) {
@@ -1117,11 +1150,16 @@ function PlayPageClient() {
       if (!currentSource && !currentId && !videoTitle && !searchTitle) {
         setError('缺少必要参数');
         setLoading(false);
+
+        // 记录错误
+        performanceMonitor.recordError();
+        performanceMonitor.recordPlayerStatus('error');
         return;
       }
 
       // 开始性能监控
       performanceMonitor.startSession();
+      const sessionStartTime = performance.now();
 
       setLoading(true);
       setLoadingStage(currentSource && currentId ? 'fetching' : 'searching');
@@ -1131,7 +1169,15 @@ function PlayPageClient() {
           : '🔍 正在搜索播放源...'
       );
 
+      // 记录源搜索开始时间
+      const searchStartTime = performance.now();
       let sourcesInfo = await fetchSourcesData(searchTitle || videoTitle);
+      const searchEndTime = performance.now();
+
+      // 记录源搜索时间
+      performanceMonitor.recordSourceSearchTime(
+        searchEndTime - searchStartTime
+      );
       if (
         currentSource &&
         currentId &&
@@ -1144,6 +1190,10 @@ function PlayPageClient() {
       if (sourcesInfo.length === 0) {
         setError('未找到匹配结果');
         setLoading(false);
+
+        // 记录错误
+        performanceMonitor.recordError();
+        performanceMonitor.recordPlayerStatus('error');
         return;
       }
 
@@ -1183,7 +1233,14 @@ function PlayPageClient() {
                   : source.episodes[0],
             }));
 
+          // 记录源测试开始时间
+          const testStartTime = performance.now();
           const ultraFastResult = await ultraFastSourceSelect(validSources);
+          const testEndTime = performance.now();
+
+          // 记录源测试时间
+          performanceMonitor.recordSourceTestTime(testEndTime - testStartTime);
+
           if (ultraFastResult) {
             detailData = ultraFastResult.source;
             setLoadingMessage('✅ 快速选择完成');
@@ -1193,7 +1250,13 @@ function PlayPageClient() {
           }
         } else {
           setLoadingMessage('⚡ 正在智能优选播放源...');
+          // 记录源测试开始时间
+          const testStartTime = performance.now();
           detailData = await preferBestSource(sourcesInfo);
+          const testEndTime = performance.now();
+
+          // 记录源测试时间
+          performanceMonitor.recordSourceTestTime(testEndTime - testStartTime);
         }
       }
 
@@ -1223,8 +1286,20 @@ function PlayPageClient() {
       setLoadingMessage('✨ 准备就绪，即将开始播放...');
 
       // 记录性能指标
+      const sessionEndTime = performance.now();
+      const totalLoadTime = sessionEndTime - sessionStartTime;
+
+      performanceMonitor.recordTotalLoadTime(totalLoadTime);
       performanceMonitor.recordSourceCount(sourcesInfo.length);
       performanceMonitor.recordSelectedSource(detailData.source_name || '');
+
+      // 记录实时监控数据
+      performanceMonitor.recordCurrentSource(
+        detailData.source_name || '',
+        false, // CDN优化状态，这里需要根据实际情况判断
+        false // 缓存命中状态，这里需要根据实际情况判断
+      );
+
       const metrics = performanceMonitor.endSession();
 
       if (metrics) {
@@ -2016,6 +2091,9 @@ function PlayPageClient() {
               createRobustEventHandler((_e: any) => {
                 setError(null);
                 console.log('🎯 播放器就绪');
+
+                // 记录播放器状态
+                performanceMonitor.recordPlayerStatus('loading');
               }, 'ready')
             );
 
@@ -3964,6 +4042,9 @@ function PlayPageClient() {
           saveCurrentPlayProgress(true); // 暂停时立即保存
           // 重置卡死计数器
           stuckCountRef.current = 0;
+
+          // 记录播放器状态
+          performanceMonitor.recordPlayerStatus('paused');
         }, 'pause')
       );
 
@@ -3974,6 +4055,9 @@ function PlayPageClient() {
           // 重置卡死计数器
           stuckCountRef.current = 0;
           lastPlayTimeRef.current = artPlayerRef.current?.currentTime || 0;
+
+          // 记录播放器状态
+          performanceMonitor.recordPlayerStatus('playing');
         }, 'play')
       );
 
