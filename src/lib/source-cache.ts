@@ -28,13 +28,15 @@ export interface SourceCacheConfig {
   maxCacheSize: number; // 最大缓存条目数
   minTestInterval: number; // 最小测试间隔（毫秒）
   healthThreshold: number; // 健康度阈值
+  enableDynamicExpiry: boolean; // 启用动态过期时间
 }
 
 const DEFAULT_CONFIG: SourceCacheConfig = {
-  cacheExpiry: 30 * 60 * 1000, // 30分钟
+  cacheExpiry: 10 * 60 * 1000, // 10分钟基准
   maxCacheSize: 1000,
   minTestInterval: 5 * 60 * 1000, // 5分钟
   healthThreshold: 0.3, // 30%成功率阈值
+  enableDynamicExpiry: true, // 默认启用动态过期
 };
 
 class SourceCacheManager {
@@ -94,6 +96,35 @@ class SourceCacheManager {
   }
 
   /**
+   * 计算动态缓存过期时间
+   */
+  private calculateDynamicExpiry(cached: CachedSourceInfo): number {
+    if (!this.config.enableDynamicExpiry) {
+      return this.config.cacheExpiry;
+    }
+
+    const BASE_EXPIRY = this.config.cacheExpiry;
+    const healthScore = cached.healthScore;
+    const testCount = cached.testCount;
+
+    // 健康度越高，缓存时间越长
+    let multiplier = 1.0;
+    if (healthScore > 0.8) {
+      multiplier = 3.0; // 30分钟
+    } else if (healthScore > 0.5) {
+      multiplier = 1.5; // 15分钟
+    } else if (healthScore < 0.3) {
+      multiplier = 0.5; // 5分钟
+    }
+
+    // 测试次数越多，数据越可靠，缓存时间可以更长
+    const reliabilityBonus = Math.min(testCount / 10, 1.0);
+    multiplier *= 1 + reliabilityBonus * 0.5;
+
+    return Math.round(BASE_EXPIRY * multiplier);
+  }
+
+  /**
    * 检查源是否需要重新测试
    */
   shouldRetest(url: string): boolean {
@@ -105,11 +136,14 @@ class SourceCacheManager {
     const now = Date.now();
     const timeSinceLastTest = now - cached.lastTestTime;
 
+    // 使用动态过期时间
+    const dynamicExpiry = this.calculateDynamicExpiry(cached);
+
     // 如果健康度低，缩短测试间隔
     const testInterval =
       cached.healthScore < this.config.healthThreshold
         ? this.config.minTestInterval / 2
-        : this.config.minTestInterval;
+        : Math.min(this.config.minTestInterval, dynamicExpiry);
 
     return timeSinceLastTest > testInterval;
   }

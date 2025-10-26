@@ -20,6 +20,14 @@ export interface FastTestResult {
   cdnInfo?: CDNOptimizedSource;
 }
 
+export interface NetworkQuality {
+  rtt: number; // 往返时间（ms）
+  downlink: number; // 下行带宽（Mbps）
+  effectiveType: '4g' | '3g' | '2g' | 'slow-2g' | 'unknown';
+  quality: 'excellent' | 'good' | 'fair' | 'poor';
+  measuredAt: number;
+}
+
 export interface SourceTestConfig {
   maxConcurrency: number;
   quickTestTimeout: number;
@@ -28,6 +36,8 @@ export interface SourceTestConfig {
   cacheExpiry: number;
   enableCDNOptimization: boolean;
   cdnWeight: number; // CDN优化权重 (0-1)
+  enableAdaptiveTimeout: boolean; // 启用自适应超时
+  enableDynamicConcurrency: boolean; // 启用动态并发控制
 }
 
 const DEFAULT_CONFIG: SourceTestConfig = {
@@ -38,16 +48,159 @@ const DEFAULT_CONFIG: SourceTestConfig = {
   cacheExpiry: 10 * 60 * 1000, // 10分钟
   enableCDNOptimization: true,
   cdnWeight: 0.3, // CDN优化权重30%
+  enableAdaptiveTimeout: true,
+  enableDynamicConcurrency: true,
 };
 
 class FastSourceTester {
   private config: SourceTestConfig;
   private cache: Map<string, FastTestResult> = new Map();
   private testingUrls: Set<string> = new Set();
+  private networkQuality: NetworkQuality | null = null;
+  private lastNetworkCheck = 0;
+  private readonly NETWORK_CHECK_INTERVAL = 30000; // 30秒检查一次网络质量
 
   constructor(config: Partial<SourceTestConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.loadCacheFromStorage();
+    this.initNetworkQualityDetection();
+  }
+
+  /**
+   * 初始化网络质量检测
+   */
+  private initNetworkQualityDetection(): void {
+    if (typeof window === 'undefined') return;
+
+    // 立即检测一次
+    this.detectNetworkQuality();
+
+    // 监听网络变化
+    if ('connection' in navigator) {
+      const connection = (navigator as any).connection;
+      if (connection) {
+        connection.addEventListener('change', () => {
+          this.detectNetworkQuality();
+        });
+      }
+    }
+  }
+
+  /**
+   * 检测当前网络质量
+   */
+  private detectNetworkQuality(): NetworkQuality {
+    const now = Date.now();
+
+    // 如果最近检测过，直接返回缓存结果
+    if (
+      this.networkQuality &&
+      now - this.lastNetworkCheck < this.NETWORK_CHECK_INTERVAL
+    ) {
+      return this.networkQuality;
+    }
+
+    const quality: NetworkQuality = {
+      rtt: 0,
+      downlink: 0,
+      effectiveType: 'unknown',
+      quality: 'good',
+      measuredAt: now,
+    };
+
+    if (typeof window !== 'undefined' && 'connection' in navigator) {
+      const connection = (navigator as any).connection;
+      if (connection) {
+        quality.rtt = connection.rtt || 0;
+        quality.downlink = connection.downlink || 0;
+        quality.effectiveType = connection.effectiveType || 'unknown';
+
+        // 根据网络类型和RTT判断质量
+        if (quality.effectiveType === '4g' && quality.rtt < 100) {
+          quality.quality = 'excellent';
+        } else if (quality.effectiveType === '4g' || quality.rtt < 200) {
+          quality.quality = 'good';
+        } else if (quality.effectiveType === '3g' || quality.rtt < 500) {
+          quality.quality = 'fair';
+        } else {
+          quality.quality = 'poor';
+        }
+      }
+    }
+
+    this.networkQuality = quality;
+    this.lastNetworkCheck = now;
+
+    console.log('[Network Quality]', quality);
+    return quality;
+  }
+
+  /**
+   * 获取当前网络质量
+   */
+  getNetworkQuality(): NetworkQuality {
+    return this.detectNetworkQuality();
+  }
+
+  /**
+   * 计算自适应超时时间
+   */
+  private calculateAdaptiveTimeout(baseTimeout: number): number {
+    if (!this.config.enableAdaptiveTimeout) {
+      return baseTimeout;
+    }
+
+    const networkQuality = this.getNetworkQuality();
+
+    const qualityMultipliers: Record<string, number> = {
+      excellent: 0.7,
+      good: 1.0,
+      fair: 1.5,
+      poor: 2.0,
+    };
+
+    const multiplier = qualityMultipliers[networkQuality.quality] || 1.0;
+    const adaptiveTimeout = Math.min(baseTimeout * multiplier, 5000); // 最大5秒
+
+    return Math.round(adaptiveTimeout);
+  }
+
+  /**
+   * 计算最优并发数
+   */
+  private calculateOptimalConcurrency(sourceCount: number): number {
+    if (!this.config.enableDynamicConcurrency) {
+      return this.config.maxConcurrency;
+    }
+
+    const networkQuality = this.getNetworkQuality();
+
+    // 基础并发数
+    let baseConcurrency = 6;
+
+    // 根据网络质量调整
+    switch (networkQuality.quality) {
+      case 'excellent':
+        baseConcurrency = 10;
+        break;
+      case 'good':
+        baseConcurrency = 8;
+        break;
+      case 'fair':
+        baseConcurrency = 4;
+        break;
+      case 'poor':
+        baseConcurrency = 2;
+        break;
+    }
+
+    // 根据源数量调整（避免过度并发）
+    const optimalConcurrency = Math.min(
+      baseConcurrency,
+      Math.ceil(sourceCount / 2)
+    );
+
+    return Math.max(2, optimalConcurrency); // 最少2个并发
   }
 
   /**
@@ -144,11 +297,13 @@ class FastSourceTester {
         }
       }
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(
-        () => controller.abort(),
+      // 使用自适应超时
+      const adaptiveTimeout = this.calculateAdaptiveTimeout(
         this.config.quickTestTimeout
       );
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), adaptiveTimeout);
 
       const response = await fetch(testUrl, {
         method: 'HEAD',
@@ -224,6 +379,8 @@ class FastSourceTester {
   ): Promise<FastTestResult[]> {
     if (urls.length === 0) return [];
 
+    const batchStartTime = performance.now();
+
     console.log(
       `开始批量快速测试 ${urls.length} 个源${
         enableCDNOptimization ? '（启用CDN优化）' : ''
@@ -267,12 +424,20 @@ class FastSourceTester {
 
     const results: FastTestResult[] = [];
 
-    // 分批处理，控制并发数
+    // 计算最优并发数
+    const optimalConcurrency = this.calculateOptimalConcurrency(urls.length);
+    console.log(
+      `使用动态并发控制: ${optimalConcurrency} 个并发 (网络质量: ${
+        this.getNetworkQuality().quality
+      })`
+    );
+
+    // 分批处理，使用动态并发数
     const chunks = [];
-    for (let i = 0; i < optimizedUrls.length; i += this.config.maxConcurrency) {
+    for (let i = 0; i < optimizedUrls.length; i += optimalConcurrency) {
       chunks.push({
-        urls: optimizedUrls.slice(i, i + this.config.maxConcurrency),
-        originalUrls: urls.slice(i, i + this.config.maxConcurrency),
+        urls: optimizedUrls.slice(i, i + optimalConcurrency),
+        originalUrls: urls.slice(i, i + optimalConcurrency),
       });
     }
 
@@ -308,9 +473,17 @@ class FastSourceTester {
 
     const availableCount = results.filter((r) => r.available).length;
     const cdnOptimizedCount = results.filter((r) => r.cdnOptimized).length;
+    const batchEndTime = performance.now();
+    const totalTestTime = Math.round(batchEndTime - batchStartTime);
 
+    // 性能监控日志
     console.log(
       `批量测试完成: ${availableCount}/${urls.length} 个源可用，${cdnOptimizedCount} 个源已CDN优化`
+    );
+    console.log(
+      `[Performance] 总耗时: ${totalTestTime}ms, 平均每源: ${Math.round(
+        totalTestTime / urls.length
+      )}ms, 可用率: ${((availableCount / urls.length) * 100).toFixed(1)}%`
     );
 
     return results;
