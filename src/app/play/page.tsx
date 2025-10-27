@@ -23,6 +23,7 @@ import {
   savePlayRecord,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import { shouldSilenceError } from '@/lib/event-handler-utils';
 import {
   fastPreferSources,
   ultraFastSourceSelect,
@@ -33,6 +34,13 @@ import {
   preloadHlsResource,
 } from '@/lib/hls-optimizer';
 import { performanceMonitor } from '@/lib/performance-monitor';
+import {
+  cleanupPlayerEvents,
+  createSafePlayerHandler,
+  initPlayerEventHandling,
+  resetPlayerEvents,
+  shouldResetPlayerEvents,
+} from '@/lib/player-event-integration';
 import { SearchResult } from '@/lib/types';
 import { isSafariBrowser, isWebKitBrowser } from '@/lib/utils';
 
@@ -55,6 +63,9 @@ function PlayPageClient() {
   useEffect(() => {
     setMounted(true);
 
+    // 初始化播放器事件处理系统
+    initPlayerEventHandling();
+
     // 检查是否需要恢复用户控制的监控
     if (performanceMonitor.shouldRestoreMonitoring()) {
       console.log('恢复用户控制的监控状态');
@@ -66,6 +77,9 @@ function PlayPageClient() {
 
     // 组件卸载时不自动停止监控，让用户控制
     return () => {
+      // 清理播放器事件处理器
+      cleanupPlayerEvents();
+
       // 只停止非用户控制的监控
       const status = performanceMonitor.getMonitoringStatus();
       if (!status.isUserControlled) {
@@ -1827,183 +1841,18 @@ function PlayPageClient() {
       return;
     }
 
-    // 增强的全局错误处理器，防止 composedPath 和其他兼容性错误
-    const originalError = window.onerror;
-    const originalUnhandledRejection = window.onunhandledrejection;
+    // 检查是否需要重置事件监听器
+    if (shouldResetPlayerEvents('player')) {
+      console.warn('⚠️ 检测到连续错误，重置事件监听器');
+      resetPlayerEvents();
+    }
 
-    // 定义需要静默处理的错误模式 - 扩展错误模式覆盖
-    const silentErrorPatterns = [
-      'composedPath',
-      'undefined is not an object',
-      'Cannot read property',
-      'Cannot read properties',
-      'TypeError: undefined is not an object',
-      'TypeError: null is not an object',
-      'event.composedPath is not a function',
-      'event.composedPath is not defined',
-      'target.composedPath',
-      'TypeError: e.composedPath',
-      'ReferenceError',
-      'target is not defined',
-      'path.composedPath',
-      'composedPath of undefined',
-      'composedPath of null',
-      'event is undefined',
-      'event is null',
-      'event.path is undefined',
-      'event.target is undefined',
-      'path.push is not a function',
-      'parentNode is undefined',
-      // 添加更多可能导致播放器崩溃的错误模式
-      'Failed to execute',
-      'Illegal invocation',
-      'undefined is not a function',
-      'is not iterable',
-      'Maximum call stack size exceeded',
-      'AbortError',
-      'The operation was aborted',
-    ];
-
-    const shouldSilenceError = (message: string) => {
-      return silentErrorPatterns.some((pattern) =>
-        message.toLowerCase().includes(pattern.toLowerCase())
-      );
-    };
-
-    // 检测是否为 composedPath 相关错误
-    const isComposedPathError = (message: string) => {
-      const composedPathPatterns = [
-        'composedPath',
-        'e.composedPath',
-        'event.composedPath',
-        'target.composedPath',
-        'path.composedPath',
-        'composedPath of undefined',
-        'composedPath of null',
-        'event.composedPath is not a function',
-        'event.composedPath is not defined',
-        'TypeError: e.composedPath',
-        "TypeError: undefined is not an object (evaluating 'e.composedPath')",
-      ];
-      return composedPathPatterns.some((pattern) =>
-        message.toLowerCase().includes(pattern.toLowerCase())
-      );
-    };
-
-    // 定义一个更安全的事件处理包装器，专门用于处理可能频繁触发的事件
+    // 使用新的工具库创建安全的事件处理包装器
     const createRobustEventHandler = (
       handler: (e: any) => void,
       eventName = ''
     ) => {
-      return function (this: any, event: any) {
-        try {
-          // 基础事件对象验证
-          if (!event || typeof event !== 'object') {
-            console.warn(`事件处理警告: 接收到无效的事件对象 (${eventName})`);
-            return;
-          }
-
-          // 为事件对象提供安全的composedPath方法（如果缺失）
-          if (typeof event.composedPath !== 'function') {
-            // 创建更安全的composedPath实现
-            const safeComposedPath = function (this: any) {
-              try {
-                // 检查this是否存在且有效
-                if (!this || typeof this !== 'object') {
-                  return [];
-                }
-
-                const path: any[] = [];
-                let current = this.target;
-
-                // 添加安全检查防止循环和访问错误
-                let iterations = 0;
-                const maxIterations = 100;
-
-                // 确保current存在且有nodeType属性
-                while (
-                  current &&
-                  typeof current === 'object' &&
-                  current.nodeType &&
-                  iterations < maxIterations
-                ) {
-                  // 避免重复添加同一个元素
-                  if (!path.includes(current)) {
-                    path.push(current);
-                  }
-
-                  // 更安全的父节点访问
-                  const nextParent =
-                    current.parentNode || current.host || current.parentElement;
-
-                  // 检查是否存在循环引用或无效引用
-                  if (
-                    !nextParent ||
-                    nextParent === current ||
-                    nextParent === window ||
-                    nextParent === document
-                  ) {
-                    break;
-                  }
-
-                  current = nextParent;
-                  iterations++;
-                }
-
-                // 添加document和window到路径末尾（如果不在路径中）
-                if (path.length > 0) {
-                  if (
-                    typeof document !== 'undefined' &&
-                    !path.includes(document)
-                  ) {
-                    path.push(document);
-                  }
-                  if (typeof window !== 'undefined' && !path.includes(window)) {
-                    path.push(window);
-                  }
-                }
-
-                return path;
-              } catch (e) {
-                // 在任何错误情况下都返回空数组而不是抛出异常
-                console.warn('composedPath执行错误，返回空数组:', e);
-                return [];
-              }
-            };
-
-            // 安全地定义composedPath属性
-            try {
-              Object.defineProperty(event, 'composedPath', {
-                value: safeComposedPath,
-                writable: false,
-                enumerable: false,
-                configurable: true,
-              });
-            } catch (defineError) {
-              // 如果无法定义属性，使用替代方案
-              console.warn(
-                '无法为事件对象定义composedPath方法，使用替代方案:',
-                defineError
-              );
-              // 为事件对象添加一个安全的替代方法
-              (event as any).safeComposedPath = safeComposedPath;
-            }
-          }
-
-          // 调用原始处理器
-          return handler.call(this, event);
-        } catch (error) {
-          const errorMessage = String((error as any)?.message || error || '');
-          if (shouldSilenceError(errorMessage)) {
-            console.warn(
-              `🔇 事件处理中的兼容性错误已静默 (${eventName}):`,
-              errorMessage
-            );
-          } else {
-            console.error(`❌ 事件处理错误 (${eventName}):`, error);
-          }
-        }
-      };
+      return createSafePlayerHandler(handler, eventName);
     };
 
     // 播放器重建函数
@@ -2254,55 +2103,7 @@ function PlayPageClient() {
       }, 500); // 延迟500ms确保完全清理
     };
 
-    window.onerror = (message, source, lineno, colno, error) => {
-      const messageStr = String(message || '');
-
-      // 检测 composedPath 错误并触发重建
-      if (isComposedPathError(messageStr)) {
-        console.warn(
-          '🚨 检测到 composedPath 错误，触发播放器重建:',
-          messageStr
-        );
-        rebuildPlayer();
-        return true; // 阻止错误继续传播
-      }
-
-      if (shouldSilenceError(messageStr)) {
-        console.warn('静默处理兼容性错误:', messageStr);
-        return true; // 阻止错误继续传播
-      }
-      if (originalError) {
-        return originalError(message, source, lineno, colno, error);
-      }
-      return false;
-    };
-
-    window.onunhandledrejection = (event: PromiseRejectionEvent) => {
-      const reason = event.reason;
-      const reasonStr = reason
-        ? String(reason.message || reason.toString?.() || reason)
-        : '';
-
-      // 检测 composedPath 错误并触发重建
-      if (isComposedPathError(reasonStr)) {
-        console.warn(
-          '🚨 检测到 composedPath Promise 错误，触发播放器重建:',
-          reasonStr
-        );
-        rebuildPlayer();
-        event.preventDefault();
-        return;
-      }
-
-      if (shouldSilenceError(reasonStr)) {
-        console.warn('静默处理兼容性Promise错误:', reasonStr);
-        event.preventDefault();
-        return;
-      }
-      if (originalUnhandledRejection) {
-        return originalUnhandledRejection.call(window, event);
-      }
-    };
+    // 全局错误处理已由 initPlayerEventHandling() 处理，无需重复设置
 
     // 确保选集索引有效
     if (
@@ -2360,12 +2161,7 @@ function PlayPageClient() {
       artPlayerRef.current = null;
     }
 
-    // 保存原始的 console.error 以便后续恢复
-    const originalConsoleError = console.error;
-
-    // 保存原始的 addEventListener (备用)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const _originalAddEventListener = EventTarget.prototype.addEventListener;
+    // 事件处理已由全局系统管理
 
     try {
       // 临时增强的事件监听器包装器 - 仅在播放器初始化期间使用
@@ -2489,23 +2285,7 @@ function PlayPageClient() {
         },
       };
 
-      // 添加全局错误处理，防止 composedPath 等错误
-      console.error = (...args) => {
-        // 过滤掉 composedPath 相关的错误，避免控制台污染
-        const errorMessage = args.join(' ');
-        if (
-          errorMessage.includes('composedPath') ||
-          errorMessage.includes('undefined is not an object') ||
-          (errorMessage.includes('Cannot read property') &&
-            errorMessage.includes('composedPath')) ||
-          (errorMessage.includes('TypeError') &&
-            errorMessage.includes('composedPath'))
-        ) {
-          console.warn('Filtered composedPath related error:', ...args);
-          return;
-        }
-        originalConsoleError.apply(console, args);
-      };
+      // 错误过滤已由全局系统处理
 
       // 增强的 Event.prototype.composedPath 兼容性处理
       if (typeof Event !== 'undefined' && Event.prototype) {
@@ -4123,14 +3903,8 @@ function PlayPageClient() {
       console.log('  ✅ 播放卡死智能恢复');
       console.log('  ✅ 事件安全性加固');
 
-      // 恢复原始的 console.error
-      console.error = originalConsoleError;
-
-      // 注意：不需要恢复addEventListener，因为我们使用的是包装器而不是全局替换
+      // 错误处理由全局系统管理
     } catch (err) {
-      // 恢复原始的 console.error
-      console.error = originalConsoleError;
-
       console.error('创建播放器失败:', err);
       setError('播放器初始化失败');
 
@@ -4146,9 +3920,7 @@ function PlayPageClient() {
         }
       }, 2000);
     } finally {
-      // 恢复原始的错误处理器
-      window.onerror = originalError;
-      window.onunhandledrejection = originalUnhandledRejection;
+      // 错误处理器由全局系统管理，无需恢复
     }
   }, [Artplayer, Hls, videoUrl, loading, blockAdEnabled]);
 
