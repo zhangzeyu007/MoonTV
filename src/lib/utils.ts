@@ -88,6 +88,289 @@ export function isWebKitBrowser(ua?: string): boolean {
 }
 
 /**
+ * 判断是否为 iOS Safari 浏览器
+ * iOS Safari 需要特殊的画中画 API 处理
+ */
+export function isIOSSafari(ua?: string): boolean {
+  const s = ua ?? getEffectiveUserAgent();
+  const isIOS = /iPhone|iPad|iPod/i.test(s);
+  const isSafari =
+    /Safari/i.test(s) && !/Chrome/i.test(s) && !/Chromium/i.test(s);
+  return isIOS && isSafari;
+}
+
+/**
+ * PiP 检测结果接口
+ */
+export interface PiPDetectionResult {
+  isSupported: boolean;
+  apiType: 'webkit' | 'standard' | 'none';
+  requiresUserGesture: boolean;
+  browserInfo: {
+    isIOSSafari: boolean;
+    isSafari: boolean;
+    isWebKit: boolean;
+    isIOS: boolean;
+    userAgent: string;
+  };
+}
+
+/**
+ * 检测浏览器对画中画功能的支持情况
+ * 返回详细的检测结果，包括支持的 API 类型和浏览器信息
+ */
+export function detectPiPSupport(): PiPDetectionResult {
+  // 服务端渲染环境，返回不支持
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return {
+      isSupported: false,
+      apiType: 'none',
+      requiresUserGesture: false,
+      browserInfo: {
+        isIOSSafari: false,
+        isSafari: false,
+        isWebKit: false,
+        isIOS: false,
+        userAgent: '',
+      },
+    };
+  }
+
+  const ua = getEffectiveUserAgent();
+  const browserInfo = {
+    isIOSSafari: isIOSSafari(ua),
+    isSafari: isSafariBrowser(ua),
+    isWebKit: isWebKitBrowser(ua),
+    isIOS: isIOSUserAgent(ua),
+    userAgent: ua,
+  };
+
+  // 创建临时 video 元素用于检测
+  const video = document.createElement('video');
+
+  // 检测 WebKit 专用 PiP API（iOS Safari 优先）
+  const hasWebKitPiP =
+    typeof (video as any).webkitSetPresentationMode === 'function';
+
+  // 检测标准 PiP API
+  const hasStandardPiP =
+    'pictureInPictureEnabled' in document &&
+    (document as any).pictureInPictureEnabled === true;
+
+  // iOS Safari 优先使用 WebKit API
+  if (browserInfo.isIOSSafari && hasWebKitPiP) {
+    return {
+      isSupported: true,
+      apiType: 'webkit',
+      requiresUserGesture: true, // iOS Safari 严格要求用户手势
+      browserInfo,
+    };
+  }
+
+  // 其他 Safari/WebKit 浏览器
+  if (hasWebKitPiP) {
+    return {
+      isSupported: true,
+      apiType: 'webkit',
+      requiresUserGesture: browserInfo.isSafari, // Safari 系列需要用户手势
+      browserInfo,
+    };
+  }
+
+  // 标准 PiP API
+  if (hasStandardPiP) {
+    return {
+      isSupported: true,
+      apiType: 'standard',
+      requiresUserGesture: true, // 标准 API 也需要用户手势
+      browserInfo,
+    };
+  }
+
+  // 不支持画中画
+  return {
+    isSupported: false,
+    apiType: 'none',
+    requiresUserGesture: false,
+    browserInfo,
+  };
+}
+
+/**
+ * 获取浏览器环境信息（用于调试和日志记录）
+ */
+export function getBrowserEnvironmentInfo() {
+  if (typeof window === 'undefined') {
+    return {
+      platform: 'server',
+      userAgent: '',
+      isIOSSafari: false,
+      isSafari: false,
+      isWebKit: false,
+      isIOS: false,
+      screenSize: { width: 0, height: 0 },
+      devicePixelRatio: 1,
+    };
+  }
+
+  const ua = getEffectiveUserAgent();
+
+  return {
+    platform: navigator.platform || 'unknown',
+    userAgent: ua,
+    isIOSSafari: isIOSSafari(ua),
+    isSafari: isSafariBrowser(ua),
+    isWebKit: isWebKitBrowser(ua),
+    isIOS: isIOSUserAgent(ua),
+    screenSize: {
+      width: window.screen.width,
+      height: window.screen.height,
+    },
+    devicePixelRatio: window.devicePixelRatio || 1,
+  };
+}
+
+/**
+ * 视频就绪状态检查选项
+ */
+export interface VideoReadinessOptions {
+  minReadyState: number; // HTMLMediaElement.HAVE_METADATA (1) or HAVE_CURRENT_DATA (2)
+  timeout: number; // 超时时间（毫秒）
+}
+
+/**
+ * 检查视频是否已就绪
+ * @param video - HTML视频元素
+ * @param minReadyState - 最小就绪状态（默认为HAVE_METADATA）
+ * @returns 是否就绪
+ */
+export function isVideoReady(
+  video: HTMLVideoElement,
+  minReadyState = 1
+): boolean {
+  return video.readyState >= minReadyState;
+}
+
+/**
+ * 等待视频元素就绪
+ * 用于确保视频在调用PiP API前处于可用状态
+ *
+ * @param video - HTML视频元素
+ * @param options - 配置选项
+ * @returns Promise，视频就绪时resolve，超时或出错时reject
+ */
+export function waitForVideoReady(
+  video: HTMLVideoElement,
+  options: Partial<VideoReadinessOptions> = {}
+): Promise<void> {
+  const {
+    minReadyState = 1, // 默认HAVE_METADATA
+    timeout = 5000, // 默认5秒超时
+  } = options;
+
+  return new Promise((resolve, reject) => {
+    // 如果已经就绪，直接返回
+    if (video.readyState >= minReadyState) {
+      console.log('[Video Ready] Video already ready', {
+        readyState: video.readyState,
+        minReadyState,
+      });
+      resolve();
+      return;
+    }
+
+    console.log('[Video Ready] Waiting for video to be ready', {
+      currentReadyState: video.readyState,
+      minReadyState,
+      timeout,
+    });
+
+    let resolved = false;
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    const cleanup = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('canplay', onCanPlay);
+      video.removeEventListener('error', onError);
+    };
+
+    const onLoadedMetadata = () => {
+      if (resolved) return;
+
+      // HAVE_METADATA = 1
+      if (minReadyState <= 1 && video.readyState >= 1) {
+        resolved = true;
+        cleanup();
+        console.log('[Video Ready] Video ready (loadedmetadata)', {
+          readyState: video.readyState,
+        });
+        resolve();
+      }
+    };
+
+    const onCanPlay = () => {
+      if (resolved) return;
+
+      // HAVE_CURRENT_DATA = 2 或更高
+      if (video.readyState >= minReadyState) {
+        resolved = true;
+        cleanup();
+        console.log('[Video Ready] Video ready (canplay)', {
+          readyState: video.readyState,
+        });
+        resolve();
+      }
+    };
+
+    const onError = (event: Event) => {
+      if (resolved) return;
+
+      resolved = true;
+      cleanup();
+      console.error('[Video Ready] Video error', event);
+      reject(new Error('Video failed to load'));
+    };
+
+    // 设置超时
+    timeoutId = setTimeout(() => {
+      if (resolved) return;
+
+      resolved = true;
+      cleanup();
+      console.warn('[Video Ready] Timeout waiting for video', {
+        currentReadyState: video.readyState,
+        minReadyState,
+        timeout,
+      });
+      reject(new Error(`Video ready timeout after ${timeout}ms`));
+    }, timeout);
+
+    // 添加事件监听器
+    video.addEventListener('loadedmetadata', onLoadedMetadata);
+    video.addEventListener('canplay', onCanPlay);
+    video.addEventListener('error', onError);
+  });
+}
+
+/**
+ * 根据浏览器类型获取推荐的最小就绪状态
+ * iOS Safari 可以使用较低的就绪状态（HAVE_METADATA）
+ * 其他浏览器建议使用 HAVE_CURRENT_DATA
+ */
+export function getRecommendedReadyState(
+  apiType: 'webkit' | 'standard' | 'none'
+): number {
+  // iOS Safari 和 WebKit 浏览器可以使用 HAVE_METADATA (1)
+  if (apiType === 'webkit') {
+    return 1; // HTMLMediaElement.HAVE_METADATA
+  }
+
+  // 标准 API 建议使用 HAVE_CURRENT_DATA (2)
+  return 2; // HTMLMediaElement.HAVE_CURRENT_DATA
+}
+
+/**
  * 从m3u8地址获取视频质量等级和网络信息
  * @param m3u8Url m3u8播放列表的URL
  * @returns Promise<{quality: string, loadSpeed: string, pingTime: number}> 视频质量等级和网络信息

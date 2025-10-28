@@ -42,7 +42,13 @@ import {
   shouldResetPlayerEvents,
 } from '@/lib/player-event-integration';
 import { SearchResult } from '@/lib/types';
-import { isSafariBrowser, isWebKitBrowser } from '@/lib/utils';
+import {
+  detectPiPSupport,
+  getRecommendedReadyState,
+  isSafariBrowser,
+  isWebKitBrowser,
+  waitForVideoReady,
+} from '@/lib/utils';
 
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
@@ -762,17 +768,28 @@ function PlayPageClient() {
   // PiP 状态管理
   const [isPiPSupported, setIsPiPSupported] = useState(false);
   const [isPiPActive, setIsPiPActive] = useState(false);
+  const [pipApiType, setPipApiType] = useState<'webkit' | 'standard' | 'none'>(
+    'none'
+  );
 
   // 检测 PiP 支持
   useEffect(() => {
     const checkPiPSupport = () => {
       if (typeof window === 'undefined') return;
 
-      const video = document.createElement('video');
-      const hasStandardPiP = 'pictureInPictureEnabled' in document;
-      const hasSafariPiP = 'webkitSetPresentationMode' in video;
+      // 使用新的检测工具函数
+      const detection = detectPiPSupport();
 
-      setIsPiPSupported(hasStandardPiP || hasSafariPiP);
+      setIsPiPSupported(detection.isSupported);
+      setPipApiType(detection.apiType);
+
+      // 调试日志
+      console.log('[PiP Detection]', {
+        isSupported: detection.isSupported,
+        apiType: detection.apiType,
+        requiresUserGesture: detection.requiresUserGesture,
+        browserInfo: detection.browserInfo,
+      });
     };
 
     checkPiPSupport();
@@ -786,56 +803,140 @@ function PlayPageClient() {
       const video = artPlayerRef.current?.video as HTMLVideoElement;
       if (!video) return;
 
-      // Safari 专用状态检测
-      // @ts-ignore
-      if (typeof video.webkitPresentationMode !== 'undefined') {
+      let newPiPState = false;
+
+      // 根据 API 类型检测状态
+      if (pipApiType === 'webkit') {
+        // WebKit API 状态检测
         // @ts-ignore
-        setIsPiPActive(video.webkitPresentationMode === 'picture-in-picture');
-        return;
+        if (typeof video.webkitPresentationMode !== 'undefined') {
+          // @ts-ignore
+          newPiPState = video.webkitPresentationMode === 'picture-in-picture';
+
+          // 调试日志
+          console.log('[PiP State Change - WebKit]', {
+            // @ts-ignore
+            mode: video.webkitPresentationMode,
+            isActive: newPiPState,
+            timestamp: Date.now(),
+          });
+        }
+      } else if (pipApiType === 'standard') {
+        // 标准 PiP API 状态检测
+        newPiPState = document.pictureInPictureElement === video;
+
+        // 调试日志
+        console.log('[PiP State Change - Standard]', {
+          pictureInPictureElement: document.pictureInPictureElement,
+          isActive: newPiPState,
+          timestamp: Date.now(),
+        });
       }
 
-      // 标准 PiP 状态检测
-      setIsPiPActive(document.pictureInPictureElement === video);
+      setIsPiPActive(newPiPState);
     };
 
     const video = artPlayerRef.current?.video as HTMLVideoElement;
     if (video) {
-      // Safari 事件监听
-      // @ts-ignore
-      if (typeof video.webkitpresentationmodechanged !== 'undefined') {
+      // 根据 API 类型添加相应的事件监听器
+      if (pipApiType === 'webkit') {
+        // WebKit 事件监听
         // @ts-ignore
-        video.addEventListener(
-          'webkitpresentationmodechanged',
-          handlePiPChange
-        );
+        if (typeof video.webkitpresentationmodechanged !== 'undefined') {
+          // @ts-ignore
+          video.addEventListener(
+            'webkitpresentationmodechanged',
+            handlePiPChange
+          );
+          console.log('[PiP] WebKit event listener added');
+        }
+      } else if (pipApiType === 'standard') {
+        // 标准 PiP 事件监听
+        video.addEventListener('enterpictureinpicture', handlePiPChange);
+        video.addEventListener('leavepictureinpicture', handlePiPChange);
+        console.log('[PiP] Standard event listeners added');
       }
 
-      // 标准 PiP 事件监听
-      video.addEventListener('enterpictureinpicture', handlePiPChange);
-      video.addEventListener('leavepictureinpicture', handlePiPChange);
-
       return () => {
-        // @ts-ignore
-        video.removeEventListener(
-          'webkitpresentationmodechanged',
-          handlePiPChange
-        );
-        video.removeEventListener('enterpictureinpicture', handlePiPChange);
-        video.removeEventListener('leavepictureinpicture', handlePiPChange);
+        // 清理事件监听器
+        if (pipApiType === 'webkit') {
+          // @ts-ignore
+          video.removeEventListener(
+            'webkitpresentationmodechanged',
+            handlePiPChange
+          );
+        } else if (pipApiType === 'standard') {
+          video.removeEventListener('enterpictureinpicture', handlePiPChange);
+          video.removeEventListener('leavepictureinpicture', handlePiPChange);
+        }
+        console.log('[PiP] Event listeners cleaned up');
       };
     }
-  }, [isPiPSupported, artPlayerRef.current]);
+  }, [isPiPSupported, pipApiType, artPlayerRef.current]);
 
   // 画中画切换
   const handleTogglePictureInPicture = async () => {
+    const startTime = Date.now();
+
     try {
       const p = artPlayerRef.current;
-      if (!p || !p.video) return;
-      const video = p.video as HTMLVideoElement;
+      if (!p || !p.video) {
+        console.warn('[PiP] Player or video not available');
+        return;
+      }
 
-      // iOS Safari 专用接口 - 优先使用
-      // @ts-ignore
-      if (typeof video.webkitSetPresentationMode === 'function') {
+      const video = p.video as HTMLVideoElement;
+      const notice = (p as any).notice;
+
+      // 记录调试信息
+      console.log('[PiP Toggle] Starting', {
+        apiType: pipApiType,
+        readyState: video.readyState,
+        paused: video.paused,
+        currentTime: video.currentTime,
+        timestamp: startTime,
+      });
+
+      // iOS Safari / WebKit 专用处理
+      if (pipApiType === 'webkit') {
+        // @ts-ignore
+        if (typeof video.webkitSetPresentationMode !== 'function') {
+          console.error('[PiP] WebKit API not available');
+          if (notice && typeof notice.show === 'function') {
+            notice.show('当前浏览器不支持画中画');
+          }
+          return;
+        }
+
+        // 获取推荐的就绪状态
+        const minReadyState = getRecommendedReadyState(pipApiType);
+
+        // 检查视频就绪状态
+        if (video.readyState < minReadyState) {
+          console.log('[PiP] Video not ready, waiting...', {
+            currentReadyState: video.readyState,
+            minReadyState,
+          });
+
+          if (notice && typeof notice.show === 'function') {
+            notice.show('视频加载中，请稍候...');
+          }
+
+          try {
+            // 等待视频就绪
+            await waitForVideoReady(video, {
+              minReadyState,
+              timeout: 5000,
+            });
+          } catch (waitError) {
+            console.error('[PiP] Video ready timeout', waitError);
+            if (notice && typeof notice.show === 'function') {
+              notice.show('视频未就绪，请稍后再试');
+            }
+            return;
+          }
+        }
+
         // @ts-ignore
         const currentMode = video.webkitPresentationMode;
         const targetMode =
@@ -843,73 +944,167 @@ function PlayPageClient() {
             ? 'inline'
             : 'picture-in-picture';
 
+        console.log('[PiP] WebKit mode change', {
+          currentMode,
+          targetMode,
+          readyState: video.readyState,
+        });
+
+        // 关键：在用户手势上下文中同步调用，不使用 await
         // @ts-ignore
         video.webkitSetPresentationMode(targetMode);
 
         // 提供用户反馈
-        const notice = (p as any).notice;
         if (notice && typeof notice.show === 'function') {
           notice.show(
             targetMode === 'picture-in-picture' ? '进入画中画' : '退出画中画'
           );
         }
+
+        console.log('[PiP] WebKit toggle completed', {
+          duration: Date.now() - startTime,
+        });
+
         return;
       }
 
-      // 标准 PiP API
-      if (document.pictureInPictureEnabled) {
+      // 标准 PiP API 处理
+      if (pipApiType === 'standard') {
+        if (!document.pictureInPictureEnabled) {
+          console.error('[PiP] Standard API not enabled');
+          if (notice && typeof notice.show === 'function') {
+            notice.show('当前浏览器不支持画中画');
+          }
+          return;
+        }
+
+        // 获取推荐的就绪状态
+        const minReadyState = getRecommendedReadyState(pipApiType);
+
+        // 退出画中画
         if (document.pictureInPictureElement) {
+          console.log('[PiP] Exiting picture-in-picture');
+
           await (document as any).exitPictureInPicture?.();
-          const notice = (p as any).notice;
+
           if (notice && typeof notice.show === 'function') {
             notice.show('退出画中画');
           }
-        } else {
-          // 确保视频已准备好
-          if (video.readyState < 2) {
-            await new Promise((resolve, reject) => {
-              const timeout = setTimeout(() => {
-                reject(new Error('视频加载超时'));
-              }, 5000);
 
-              const onCanPlay = () => {
-                clearTimeout(timeout);
-                video.removeEventListener('canplay', onCanPlay);
-                video.removeEventListener('error', onError);
-                resolve(null);
-              };
+          console.log('[PiP] Standard exit completed', {
+            duration: Date.now() - startTime,
+          });
 
-              const onError = () => {
-                clearTimeout(timeout);
-                video.removeEventListener('canplay', onCanPlay);
-                video.removeEventListener('error', onError);
-                reject(new Error('视频加载失败'));
-              };
+          return;
+        }
 
-              video.addEventListener('canplay', onCanPlay, { once: true });
-              video.addEventListener('error', onError, { once: true });
-            });
-          }
+        // 进入画中画
+        // 检查视频就绪状态
+        if (video.readyState < minReadyState) {
+          console.log('[PiP] Video not ready, waiting...', {
+            currentReadyState: video.readyState,
+            minReadyState,
+          });
 
-          await (video as any).requestPictureInPicture?.();
-          const notice = (p as any).notice;
           if (notice && typeof notice.show === 'function') {
-            notice.show('进入画中画');
+            notice.show('视频加载中，请稍候...');
+          }
+
+          try {
+            await waitForVideoReady(video, {
+              minReadyState,
+              timeout: 5000,
+            });
+          } catch (waitError) {
+            console.error('[PiP] Video ready timeout', waitError);
+            if (notice && typeof notice.show === 'function') {
+              notice.show('视频未就绪，请稍后再试');
+            }
+            return;
           }
         }
-      } else {
-        const notice = (p as any).notice;
+
+        console.log('[PiP] Entering picture-in-picture', {
+          readyState: video.readyState,
+        });
+
+        await (video as any).requestPictureInPicture?.();
+
         if (notice && typeof notice.show === 'function') {
-          notice.show('当前浏览器不支持画中画');
+          notice.show('进入画中画');
         }
+
+        console.log('[PiP] Standard enter completed', {
+          duration: Date.now() - startTime,
+        });
+
+        return;
       }
-    } catch (e) {
-      console.warn('画中画切换失败:', e);
+
+      // 不支持画中画
+      console.warn('[PiP] Picture-in-picture not supported');
+      if (notice && typeof notice.show === 'function') {
+        notice.show('当前浏览器不支持画中画');
+      }
+    } catch (e: any) {
+      const duration = Date.now() - startTime;
+
+      // 详细的错误分类和处理
+      let errorMessage = '切换画中画失败';
+      let errorCode = 'UNKNOWN';
+
+      if (e.name === 'NotAllowedError') {
+        errorCode = 'NOT_ALLOWED';
+        errorMessage = '请直接点击按钮进入画中画';
+        console.error('[PiP] NotAllowedError - User gesture required', {
+          error: e,
+          duration,
+        });
+      } else if (e.name === 'InvalidStateError') {
+        errorCode = 'INVALID_STATE';
+        errorMessage = '视频状态异常，请重试';
+        console.error('[PiP] InvalidStateError - Video not ready', {
+          error: e,
+          duration,
+        });
+      } else if (e.name === 'NotSupportedError') {
+        errorCode = 'NOT_SUPPORTED';
+        errorMessage = '当前视频格式不支持画中画';
+        console.error('[PiP] NotSupportedError - Format not supported', {
+          error: e,
+          duration,
+        });
+      } else if (e.message && e.message.includes('timeout')) {
+        errorCode = 'TIMEOUT';
+        errorMessage = '视频加载超时，请重试';
+        console.error('[PiP] Timeout error', {
+          error: e,
+          duration,
+        });
+      } else {
+        console.error('[PiP] Unknown error', {
+          error: e,
+          name: e.name,
+          message: e.message,
+          duration,
+        });
+      }
+
+      // 显示用户友好的错误提示
       const p = artPlayerRef.current as any;
       const notice = p?.notice;
       if (notice && typeof notice.show === 'function') {
-        notice.show('切换画中画失败，请重试');
+        notice.show(errorMessage);
       }
+
+      // 记录错误到控制台（生产环境也保留，便于用户反馈问题）
+      console.error('[PiP Error Summary]', {
+        errorCode,
+        errorMessage,
+        apiType: pipApiType,
+        duration,
+        error: e,
+      });
     }
   };
 
