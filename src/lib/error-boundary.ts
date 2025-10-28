@@ -11,6 +11,8 @@ import {
   isComposedPathError,
   shouldSilenceError,
 } from './event-handler-utils';
+import { ErrorSeverity, playerHealthMonitor } from './player-health-monitor';
+import { playerHealthStats } from './player-health-stats';
 
 /**
  * ErrorBoundary 类
@@ -113,6 +115,12 @@ export class ErrorBoundary implements IErrorBoundary {
     const now = Date.now();
     const errorMessage = error.message || String(error);
 
+    // 评估错误严重程度
+    const severity = playerHealthMonitor.assessErrorSeverity(error);
+
+    // 记录错误到健康监控器
+    playerHealthMonitor.recordError(error);
+
     // 创建错误记录
     const record: ErrorRecord = {
       type: this.categorizeError(error),
@@ -151,9 +159,25 @@ export class ErrorBoundary implements IErrorBoundary {
 
     this.lastErrorTime.set(context, now);
 
-    // 记录错误（根据类型决定日志级别）
+    // 记录错误到统计系统
+    playerHealthStats.recordErrorEvent({
+      timestamp: now,
+      type: record.type,
+      severity,
+      message: errorMessage,
+      context,
+      stack: error.stack,
+    });
+
+    // 记录错误（根据类型和严重程度决定日志级别）
     if (shouldSilenceError(error)) {
       console.warn(`🔇 静默错误 [${context}]:`, errorMessage);
+    } else if (severity === 'critical' || severity === 'high') {
+      console.error(
+        `❌ ${severity === 'critical' ? '致命' : '严重'}错误 [${context}]:`,
+        errorMessage,
+        error
+      );
     } else if (record.recoverable) {
       console.warn(`⚠️ 可恢复错误 [${context}]:`, errorMessage);
     } else {
@@ -162,9 +186,13 @@ export class ErrorBoundary implements IErrorBoundary {
 
     // 检查是否需要触发恢复机制
     const consecutiveCount = this.consecutiveErrors.get(context) || 0;
-    if (consecutiveCount >= 3) {
+    if (consecutiveCount >= 3 && consecutiveCount < 5) {
       console.warn(
         `⚠️ 检测到连续错误 (${consecutiveCount}次)，建议重置事件监听器`
+      );
+    } else if (consecutiveCount >= 5) {
+      console.error(
+        `🚨 检测到严重连续错误 (${consecutiveCount}次)，可能需要重建播放器`
       );
     }
   }
@@ -339,4 +367,18 @@ export function shouldResetListeners(context: string): boolean {
  */
 export function resetErrorBoundary(): void {
   errorBoundary.reset();
+}
+
+/**
+ * 评估错误严重程度
+ */
+export function assessErrorSeverity(error: Error): ErrorSeverity {
+  return playerHealthMonitor.assessErrorSeverity(error);
+}
+
+/**
+ * 检查是否需要重建播放器
+ */
+export function shouldRebuildPlayer(): boolean {
+  return playerHealthMonitor.shouldRebuildPlayer();
 }
