@@ -35,12 +35,18 @@ import {
 } from '@/lib/hls-optimizer';
 import { performanceMonitor } from '@/lib/performance-monitor';
 import {
+  checkPlayerHealth,
+  getPlayerHealthStatus,
+  handlePlayerError,
+} from '@/lib/player-auto-recovery';
+import {
   cleanupPlayerEvents,
   createSafePlayerHandler,
   initPlayerEventHandling,
   resetPlayerEvents,
   shouldResetPlayerEvents,
 } from '@/lib/player-event-integration';
+import { playerHealthMonitor } from '@/lib/player-health-monitor';
 import { SearchResult } from '@/lib/types';
 import {
   detectPiPSupport,
@@ -2050,8 +2056,8 @@ function PlayPageClient() {
       return createSafePlayerHandler(handler, eventName);
     };
 
-    // 播放器重建函数
-    const rebuildPlayer = () => {
+    // 播放器重建函数（备用，现在使用 handlePlayerError）
+    const _rebuildPlayer = () => {
       // 防止重复重建
       if (rebuildTimeoutRef.current) {
         console.warn('🔄 播放器重建已在进行中，跳过重复请求');
@@ -3166,6 +3172,16 @@ function PlayPageClient() {
 
               const now = Date.now();
 
+              // 创建错误对象用于健康监控
+              const error = new Error(
+                `HLS ${data.fatal ? 'Fatal' : 'Non-Fatal'} Error: ${
+                  data.type
+                } - ${data.details || 'Unknown'}`
+              );
+
+              // 记录错误到健康监控系统
+              playerHealthMonitor.recordError(error);
+
               // 清除之前的错误防抖定时器
               if (errorDebounceRef.current) {
                 clearTimeout(errorDebounceRef.current);
@@ -3454,6 +3470,53 @@ function PlayPageClient() {
                     }
                   }
                 }
+
+                // 检查是否需要重建播放器（在所有错误处理后）
+                if (data.fatal) {
+                  setTimeout(async () => {
+                    try {
+                      // 检查播放器健康状态
+                      const healthStatus = getPlayerHealthStatus();
+                      console.log('播放器健康状态:', healthStatus);
+
+                      // 如果需要重建播放器
+                      if (playerHealthMonitor.shouldRebuildPlayer()) {
+                        console.log('⚠️ 检测到严重错误，触发播放器自动重建...');
+
+                        // 获取播放器容器和选项
+                        const container = artRef.current;
+                        if (!container) {
+                          console.error('播放器容器不存在，无法重建');
+                          return;
+                        }
+
+                        // 构建播放器选项
+                        const playerOptions = {
+                          url: videoUrl,
+                          volume: lastVolumeRef.current,
+                          autoplay: true,
+                          // 其他播放器配置...
+                        };
+
+                        // 调用自动恢复处理
+                        const newPlayer = await handlePlayerError(
+                          error,
+                          artPlayerRef.current,
+                          container,
+                          playerOptions
+                        );
+
+                        // 如果成功重建，更新播放器引用
+                        if (newPlayer) {
+                          artPlayerRef.current = newPlayer;
+                          console.log('✅ 播放器自动重建成功');
+                        }
+                      }
+                    } catch (rebuildError) {
+                      console.error('播放器自动重建失败:', rebuildError);
+                    }
+                  }, 1000); // 延迟1秒后检查，避免与其他恢复机制冲突
+                }
               }
             });
 
@@ -3509,6 +3572,12 @@ function PlayPageClient() {
         createRobustEventHandler((_e: any) => {
           setError(null);
           console.log('🎯 播放器就绪');
+
+          // 初始化播放器健康监控
+          if (artPlayerRef.current) {
+            playerHealthMonitor.monitorPlayerHealth(artPlayerRef.current);
+            console.log('✅ 播放器健康监控已启动');
+          }
         }, 'ready')
       );
 
@@ -3559,7 +3628,7 @@ function PlayPageClient() {
 
       artPlayerRef.current.on(
         'error',
-        createRobustEventHandler((err: any) => {
+        createRobustEventHandler(async (err: any) => {
           // 特别处理AbortError，防止播放器卡死
           if (
             err?.name === 'AbortError' ||
@@ -3600,6 +3669,16 @@ function PlayPageClient() {
 
           console.error('❌', errorMessage, err);
 
+          // 创建错误对象并记录到健康监控系统
+          const error = err instanceof Error ? err : new Error(errorMessage);
+          playerHealthMonitor.recordError(error);
+
+          // 检查播放器健康状态
+          const isHealthy = checkPlayerHealth(artPlayerRef.current);
+          if (!isHealthy) {
+            console.warn('⚠️ 播放器健康状态异常');
+          }
+
           // 如果是视频元素错误，提供更具体的处理
           if (err.target && err.target.error) {
             const videoError = err.target.error;
@@ -3625,6 +3704,49 @@ function PlayPageClient() {
           if (artPlayerRef.current && artPlayerRef.current.currentTime > 0) {
             return;
           }
+
+          // 检查是否需要重建播放器
+          setTimeout(async () => {
+            try {
+              if (playerHealthMonitor.shouldRebuildPlayer()) {
+                console.log('⚠️ 检测到严重错误，触发播放器自动重建...');
+
+                const container = artRef.current;
+                if (!container) {
+                  console.error('播放器容器不存在，无法重建');
+                  return;
+                }
+
+                // 构建播放器选项
+                const playerOptions = {
+                  url: videoUrl,
+                  volume: lastVolumeRef.current,
+                  autoplay: true,
+                  poster: videoCover,
+                  theme: '#22c55e',
+                  lang: 'zh-cn',
+                  pip: isPiPSupported,
+                  type: 'm3u8',
+                };
+
+                // 调用自动恢复处理
+                const newPlayer = await handlePlayerError(
+                  error,
+                  artPlayerRef.current,
+                  container,
+                  playerOptions
+                );
+
+                // 如果成功重建，更新播放器引用
+                if (newPlayer) {
+                  artPlayerRef.current = newPlayer;
+                  console.log('✅ 播放器自动重建成功');
+                }
+              }
+            } catch (rebuildError) {
+              console.error('播放器自动重建失败:', rebuildError);
+            }
+          }, 1000);
         }, 'error')
       );
 
