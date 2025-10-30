@@ -617,7 +617,7 @@ if (isFatalError(error) || rebuildAttempts >= 3) {
   // 1. 记录详细错误信息
   logDetailedError(error);
 
-  // 2. 显示用户友好的错误消息
+  // 2. 显示用户友好的错误消息（全屏覆盖）
   showUserFriendlyError({
     title: '播放器无法恢复',
     message: '很抱歉，播放器遇到了严重问题',
@@ -630,6 +630,10 @@ if (isFatalError(error) || rebuildAttempts >= 3) {
 
   // 3. 停止所有恢复尝试
   stopRecoveryAttempts();
+
+  // 4. 确保错误弹窗显示（关键）
+  // 注意：在调用 recoverPlayer 的地方，不要用 try-catch 吞掉错误
+  // 或者在 catch 块中重新显示错误弹窗
 }
 ```
 
@@ -1443,5 +1447,161 @@ function logRebuildEvent(
 
   // 本地日志
   console.log('播放器重建事件:', event);
+}
+```
+
+## 致命错误弹窗显示保证机制
+
+### 问题分析
+
+当播放器重建失败时，`playerRecoveryManager.recoverPlayer()` 会调用 `showFatalError()` 并抛出错误。但如果调用方使用 `try-catch` 捕获了这个错误而没有重新抛出或显示弹窗，用户将看不到错误提示。
+
+### 解决方案
+
+#### 方案 1: 在调用方正确处理错误（推荐）
+
+```typescript
+// 在 play/page.tsx 中
+try {
+  const newPlayer = await playerRecoveryManager.recoverPlayer(
+    artPlayerRef.current,
+    container,
+    playerOptions
+  );
+
+  if (newPlayer) {
+    artPlayerRef.current = newPlayer;
+    console.log('✅ 播放器自动重建成功');
+  }
+} catch (rebuildError) {
+  console.error('播放器自动恢复失败:', rebuildError);
+
+  // 关键：不要吞掉错误，确保弹窗已经显示
+  // recoverPlayer 内部已经调用了 showFatalError
+  // 这里只需要记录日志，不需要额外处理
+
+  // 可选：如果需要额外的错误处理逻辑
+  // 例如：停止其他恢复尝试、清理资源等
+}
+```
+
+#### 方案 2: 添加全局错误捕获
+
+```typescript
+// 在播放器初始化时添加全局错误监听
+window.addEventListener('error', (event) => {
+  const error = event.error;
+
+  // 检测 composedPath 相关错误
+  if (error && error.message && error.message.includes('composedPath')) {
+    console.error('捕获到 composedPath 全局错误:', error);
+
+    // 直接显示致命错误弹窗
+    showFatalError({
+      title: '播放器遇到严重错误',
+      message: '播放器事件处理出现问题，无法继续播放',
+      suggestion: '请点击下方按钮刷新页面以恢复正常',
+      error: error,
+    });
+
+    // 阻止错误继续传播
+    event.preventDefault();
+  }
+});
+
+// 捕获未处理的 Promise 拒绝
+window.addEventListener('unhandledrejection', (event) => {
+  const error = event.reason;
+
+  if (error && error.message && error.message.includes('composedPath')) {
+    console.error('捕获到 composedPath Promise 拒绝:', error);
+
+    showFatalError({
+      title: '播放器遇到严重错误',
+      message: '播放器事件处理出现问题，无法继续播放',
+      suggestion: '请点击下方按钮刷新页面以恢复正常',
+      error: error,
+    });
+
+    event.preventDefault();
+  }
+});
+```
+
+#### 方案 3: 增强 PlayerRecoveryManager
+
+```typescript
+// 在 PlayerRecoveryManager 中添加状态跟踪
+export class PlayerRecoveryManager {
+  private fatalErrorShown = false;
+
+  public async recoverPlayer(
+    player: any,
+    container: HTMLElement,
+    options: any
+  ): Promise<any> {
+    try {
+      return await this.rebuildPlayer(player, container, options);
+    } catch (error) {
+      if (this.rebuildAttempts < this.config.maxAttempts) {
+        console.log(`将进行第 ${this.rebuildAttempts + 1} 次重建尝试...`);
+        return await this.recoverPlayer(player, container, options);
+      } else {
+        console.error('所有重建尝试均失败');
+
+        // 确保只显示一次致命错误
+        if (!this.fatalErrorShown) {
+          this.fatalErrorShown = true;
+
+          // 显示致命错误页面
+          showFatalError({
+            title: '播放器无法恢复',
+            message: '很抱歉，播放器遇到了严重问题，多次修复尝试均失败',
+            suggestion: '请尝试刷新页面或更换浏览器',
+            error: error as Error,
+          });
+        }
+
+        throw error;
+      }
+    }
+  }
+
+  // 重置标志
+  public resetFatalErrorFlag(): void {
+    this.fatalErrorShown = false;
+  }
+}
+```
+
+### 实施建议
+
+1. **优先使用方案 1**：确保调用方正确处理错误，不要吞掉错误
+2. **补充方案 2**：添加全局错误捕获作为安全网，捕获任何未被处理的 composedPath 错误
+3. **可选方案 3**：如果需要更严格的控制，可以在 PlayerRecoveryManager 中添加状态跟踪
+
+### 测试验证
+
+```typescript
+// 测试代码：模拟 composedPath 错误
+function testFatalErrorDisplay() {
+  // 1. 触发 composedPath 错误
+  const fakeEvent = {};
+  try {
+    // @ts-ignore
+    fakeEvent.composedPath();
+  } catch (error) {
+    console.log('成功触发 composedPath 错误');
+  }
+
+  // 2. 验证致命错误弹窗是否显示
+  setTimeout(() => {
+    const errorPage = document.querySelector('.player-fatal-error');
+    if (errorPage) {
+      console.log('✅ 致命错误弹窗正确显示');
+    } else {
+      console.error('❌ 致命错误弹窗未显示');
+    }
+  }, 1000);
 }
 ```

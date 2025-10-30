@@ -78,6 +78,108 @@ function PlayPageClient() {
     // 初始化播放器事件处理系统
     initPlayerEventHandling();
 
+    // 添加全局错误捕获机制（安全网）
+    const handleGlobalError = (event: ErrorEvent) => {
+      const error = event.error;
+
+      // 检测 composedPath 相关错误
+      if (
+        error &&
+        error.message &&
+        (error.message.includes('composedPath') ||
+          error.message.includes('undefined is not an object'))
+      ) {
+        console.error('🚨 捕获到 composedPath 全局错误:', error);
+
+        // 记录错误到健康监控
+        playerHealthMonitor.recordError(error);
+
+        // 检查是否需要重建播放器
+        if (playerHealthMonitor.shouldRebuildPlayer()) {
+          console.log('⚠️ 全局错误触发播放器重建');
+
+          // 获取播放器容器
+          const container = artRef.current;
+          if (container && artPlayerRef.current) {
+            const playerOptions = {
+              url: videoUrl,
+              volume: lastVolumeRef.current,
+              autoplay: true,
+              poster: videoCover,
+              theme: '#22c55e',
+              lang: 'zh-cn',
+              pip: isPiPSupported,
+              type: 'm3u8',
+            };
+
+            // 异步执行重建
+            playerRecoveryManager
+              .recoverPlayer(artPlayerRef.current, container, playerOptions)
+              .then((newPlayer) => {
+                if (newPlayer) {
+                  artPlayerRef.current = newPlayer;
+                  console.log('✅ 全局错误触发的播放器重建成功');
+                }
+              })
+              .catch((rebuildError) => {
+                console.error('❌ 全局错误触发的播放器重建失败:', rebuildError);
+                // recoverPlayer 内部已经显示了致命错误弹窗
+              });
+          }
+        }
+
+        // 阻止错误继续传播
+        event.preventDefault();
+      }
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const error = event.reason;
+
+      // 检测 composedPath 相关错误
+      if (
+        error &&
+        error.message &&
+        (error.message.includes('composedPath') ||
+          error.message.includes('undefined is not an object'))
+      ) {
+        console.error('🚨 捕获到 composedPath Promise 拒绝:', error);
+
+        // 记录错误到健康监控
+        playerHealthMonitor.recordError(error);
+
+        // 阻止错误继续传播
+        event.preventDefault();
+      }
+    };
+
+    // 注册全局错误监听器
+    window.addEventListener('error', handleGlobalError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+    // 开发模式：添加全局测试函数
+    if (typeof window !== 'undefined') {
+      // @ts-ignore
+      window.testFatalError = () => {
+        console.log('🧪 触发测试：模拟 composedPath 错误');
+        const testError = new Error(
+          "undefined is not an object (evaluating 'e.composedPath')"
+        );
+        testError.stack = `Error: undefined is not an object (evaluating 'e.composedPath')
+    at HTMLDivElement.handleClick (play/page.tsx:2500:15)
+    at HTMLDivElement.dispatch (artplayer.js:1234:20)`;
+
+        // 触发全局错误
+        setTimeout(() => {
+          throw testError;
+        }, 0);
+      };
+
+      console.log(
+        '💡 开发提示：在控制台输入 window.testFatalError() 可以测试致命错误弹窗'
+      );
+    }
+
     // 检查是否需要恢复用户控制的监控
     if (performanceMonitor.shouldRestoreMonitoring()) {
       console.log('恢复用户控制的监控状态');
@@ -87,8 +189,15 @@ function PlayPageClient() {
       performanceMonitor.startRealTimeMonitoring(false);
     }
 
-    // 组件卸载时不自动停止监控，让用户控制
+    // 组件卸载时清理
     return () => {
+      // 移除全局错误监听器
+      window.removeEventListener('error', handleGlobalError);
+      window.removeEventListener(
+        'unhandledrejection',
+        handleUnhandledRejection
+      );
+
       // 清理播放器事件处理器
       cleanupPlayerEvents();
 
@@ -3664,6 +3773,9 @@ function PlayPageClient() {
                       }
                     } catch (rebuildError) {
                       console.error('播放器自动恢复失败:', rebuildError);
+                      // 注意：recoverPlayer 内部已经调用了 showFatalError
+                      // 这里只记录日志，不需要额外处理
+                      // 致命错误弹窗已经显示给用户
                     }
                   }, 1000); // 延迟1秒后检查，避免与其他恢复机制冲突
                 }
@@ -4047,6 +4159,9 @@ function PlayPageClient() {
               }
             } catch (rebuildError) {
               console.error('播放器自动恢复失败:', rebuildError);
+              // 注意：recoverPlayer 内部已经调用了 showFatalError
+              // 这里只记录日志，不需要额外处理
+              // 致命错误弹窗已经显示给用户
             }
           }, 1000);
         }, 'error')

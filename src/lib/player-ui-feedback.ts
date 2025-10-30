@@ -449,3 +449,60 @@ export function hideFatalError(): void {
 
   console.log('✅ 隐藏致命错误页面');
 }
+
+/**
+ * 测试致命错误弹窗显示
+ * 用于开发和调试
+ */
+export function testFatalErrorDisplay(): void {
+  console.log('🧪 开始测试致命错误弹窗...');
+
+  // 创建一个模拟的 composedPath 错误
+  const testError = new Error(
+    "undefined is not an object (evaluating 'e.composedPath')"
+  );
+  testError.stack = `Error: undefined is not an object (evaluating 'e.composedPath')
+    at HTMLDivElement.handleClick (play/page.tsx:2500:15)
+    at HTMLDivElement.dispatch (artplayer.js:1234:20)`;
+
+  // 显示致命错误弹窗
+  showFatalError({
+    title: '播放器无法恢复',
+    message: '很抱歉，播放器遇到了严重问题，多次修复尝试均失败',
+    suggestion: '请尝试刷新页面或更换浏览器',
+    error: testError,
+  });
+
+  // 验证弹窗是否显示
+  setTimeout(() => {
+    const errorPage = document.querySelector('.player-fatal-error');
+    const refreshBtn = document.getElementById('error-refresh-btn');
+    const backBtn = document.getElementById('error-back-btn');
+
+    if (errorPage) {
+      console.log('✅ 致命错误弹窗正确显示');
+    } else {
+      console.error('❌ 致命错误弹窗未显示');
+    }
+
+    if (refreshBtn) {
+      console.log('✅ 刷新按钮存在');
+    } else {
+      console.error('❌ 刷新按钮不存在');
+    }
+
+    if (backBtn) {
+      console.log('✅ 返回按钮存在');
+    } else {
+      console.error('❌ 返回按钮不存在');
+    }
+
+    // 测试按钮功能
+    if (refreshBtn) {
+      console.log('🧪 测试刷新按钮点击（不会真正刷新）');
+      // 不实际触发点击，只验证按钮存在
+    }
+
+    console.log('🧪 测试完成！请手动验证弹窗显示和按钮功能');
+  }, 100);
+}
