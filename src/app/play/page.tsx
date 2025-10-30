@@ -37,7 +37,6 @@ import { performanceMonitor } from '@/lib/performance-monitor';
 import {
   checkPlayerHealth,
   getPlayerHealthStatus,
-  handlePlayerError,
 } from '@/lib/player-auto-recovery';
 import {
   cleanupPlayerEvents,
@@ -47,6 +46,7 @@ import {
   shouldResetPlayerEvents,
 } from '@/lib/player-event-integration';
 import { playerHealthMonitor } from '@/lib/player-health-monitor';
+import { playerRecoveryManager } from '@/lib/player-recovery-manager';
 import { SearchResult } from '@/lib/types';
 import {
   detectPiPSupport,
@@ -707,6 +707,18 @@ function PlayPageClient() {
 
   // 智能源切换器
   const sourceSwitcherRef = useRef<SmartSourceSwitcher | null>(null);
+
+  // 源切换冷却期管理
+  const lastSourceSwitchTimeRef = useRef<number>(0);
+  const sourceLoadStartTimeRef = useRef<number>(0);
+  const currentSourceErrorCountRef = useRef<number>(0);
+  const SOURCE_SWITCH_COOLDOWN = 10000; // 10秒冷却期，给每个源足够的加载时间
+  const SOURCE_ERROR_THRESHOLD = 3; // 当前源连续3次错误才切换
+
+  // 源切换状态跟踪
+  const triedSourcesRef = useRef<Set<string>>(new Set()); // 已尝试的源
+  const [allSourcesFailed, setAllSourcesFailed] = useState(false); // 所有源都失败了
+  const currentSourceIndexRef = useRef<number>(0); // 当前尝试的源索引（基于availableSources）
 
   // 播放器控制（全屏 / 音量 / 倍速）
   const speedOptions = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
@@ -2030,6 +2042,37 @@ function PlayPageClient() {
     }
   };
 
+  // 跟踪视频URL变化，标记源加载开始
+  useEffect(() => {
+    if (videoUrl) {
+      sourceLoadStartTimeRef.current = Date.now();
+      // 记录当前URL到已尝试列表
+      triedSourcesRef.current.add(videoUrl);
+      console.log(
+        `📍 视频URL变化，标记源加载开始时间 (已尝试 ${triedSourcesRef.current.size} 个源)`
+      );
+    }
+  }, [videoUrl]);
+
+  // 当切换集数时，重置已尝试源列表
+  useEffect(() => {
+    triedSourcesRef.current.clear();
+    setAllSourcesFailed(false);
+    currentSourceIndexRef.current = 0;
+    console.log('🔄 切换集数，重置已尝试源列表');
+  }, [currentEpisodeIndex]);
+
+  // 当前源变化时，记录到已尝试列表
+  useEffect(() => {
+    if (currentSource && currentId) {
+      const sourceKey = `${currentSource}-${currentId}`;
+      triedSourcesRef.current.add(sourceKey);
+      console.log(
+        `📍 当前源: ${currentSource} (已尝试 ${triedSourcesRef.current.size} 个源)`
+      );
+    }
+  }, [currentSource, currentId]);
+
   useEffect(() => {
     if (
       !Artplayer ||
@@ -2054,6 +2097,82 @@ function PlayPageClient() {
       eventName = ''
     ) => {
       return createSafePlayerHandler(handler, eventName);
+    };
+
+    // 判断是否应该切换源
+    const shouldSwitchSource = (): boolean => {
+      const now = Date.now();
+      const timeSinceLastSwitch = now - lastSourceSwitchTimeRef.current;
+      const timeSinceLoadStart = now - sourceLoadStartTimeRef.current;
+
+      // 0. 强制切换条件：超过6秒最大等待时间，强制切换
+      const MAX_SOURCE_WAIT_TIME = 6000; // 6秒最大等待时间
+      if (timeSinceLoadStart >= MAX_SOURCE_WAIT_TIME) {
+        console.log(
+          `⚠️ 当前源加载超时（已等待${Math.round(
+            timeSinceLoadStart / 1000
+          )}秒 >= 6秒），强制切换源`
+        );
+        return true;
+      }
+
+      // 1. 检查冷却期：距离上次切换是否超过10秒
+      if (timeSinceLastSwitch < SOURCE_SWITCH_COOLDOWN) {
+        console.log(
+          `⏳ 源切换冷却期内（${Math.round(
+            (SOURCE_SWITCH_COOLDOWN - timeSinceLastSwitch) / 1000
+          )}秒后可切换）`
+        );
+        return false;
+      }
+
+      // 2. 检查加载时间：当前源是否已经尝试加载至少5秒
+      if (timeSinceLoadStart < 5000) {
+        console.log(
+          `⏳ 当前源加载时间不足（已加载${Math.round(
+            timeSinceLoadStart / 1000
+          )}秒，需要至少5秒）`
+        );
+        return false;
+      }
+
+      // 3. 检查错误次数：当前源是否连续错误达到阈值
+      if (currentSourceErrorCountRef.current < SOURCE_ERROR_THRESHOLD) {
+        console.log(
+          `⏳ 当前源错误次数不足（${
+            currentSourceErrorCountRef.current
+          }/${SOURCE_ERROR_THRESHOLD}），已等待${Math.round(
+            timeSinceLoadStart / 1000
+          )}秒/6秒`
+        );
+        return false;
+      }
+
+      console.log('✅ 满足源切换条件');
+      return true;
+    };
+
+    // 记录源加载开始
+    const markSourceLoadStart = () => {
+      sourceLoadStartTimeRef.current = Date.now();
+      currentSourceErrorCountRef.current = 0;
+      console.log('📍 标记源加载开始时间');
+    };
+
+    // 记录源切换
+    const markSourceSwitch = () => {
+      lastSourceSwitchTimeRef.current = Date.now();
+      sourceLoadStartTimeRef.current = Date.now();
+      currentSourceErrorCountRef.current = 0;
+      console.log('📍 标记源切换时间');
+    };
+
+    // 记录当前源错误
+    const recordCurrentSourceError = () => {
+      currentSourceErrorCountRef.current++;
+      console.log(
+        `📍 记录当前源错误（${currentSourceErrorCountRef.current}/${SOURCE_ERROR_THRESHOLD}）`
+      );
     };
 
     // 播放器重建函数（备用，现在使用 handlePlayerError）
@@ -3182,6 +3301,9 @@ function PlayPageClient() {
               // 记录错误到健康监控系统
               playerHealthMonitor.recordError(error);
 
+              // 记录当前源错误
+              recordCurrentSourceError();
+
               // 清除之前的错误防抖定时器
               if (errorDebounceRef.current) {
                 clearTimeout(errorDebounceRef.current);
@@ -3481,7 +3603,30 @@ function PlayPageClient() {
 
                       // 如果需要重建播放器
                       if (playerHealthMonitor.shouldRebuildPlayer()) {
-                        console.log('⚠️ 检测到严重错误，触发播放器自动重建...');
+                        console.log(
+                          '⚠️ 检测到严重HLS错误，开始智能恢复流程...'
+                        );
+
+                        // 策略1: 先尝试切换播放源（需要满足切换条件）
+                        if (shouldSwitchSource()) {
+                          const nextSource = tryNextSource();
+                          if (nextSource) {
+                            console.log('✅ 已切换到备用HLS源，重置健康状态');
+                            // 标记源切换
+                            markSourceSwitch();
+                            // 重置健康状态，给新源一个机会
+                            playerHealthMonitor.resetHealthStatus();
+                            return; // 不需要重建，HLS已经切换源
+                          }
+                        } else {
+                          console.log(
+                            '⏳ 不满足HLS源切换条件，继续等待当前源加载...'
+                          );
+                          return; // 等待当前源继续尝试
+                        }
+
+                        // 策略2: 如果没有更多HLS源，则重建播放器
+                        console.log('🔄 没有更多HLS源，重建播放器实例...');
 
                         // 获取播放器容器和选项
                         const container = artRef.current;
@@ -3495,16 +3640,21 @@ function PlayPageClient() {
                           url: videoUrl,
                           volume: lastVolumeRef.current,
                           autoplay: true,
-                          // 其他播放器配置...
+                          poster: videoCover,
+                          theme: '#22c55e',
+                          lang: 'zh-cn',
+                          pip: isPiPSupported,
+                          type: 'm3u8',
                         };
 
-                        // 调用自动恢复处理
-                        const newPlayer = await handlePlayerError(
-                          error,
-                          artPlayerRef.current,
-                          container,
-                          playerOptions
-                        );
+                        // 直接调用重建管理器
+                        console.log('🔧 开始执行播放器重建...');
+                        const newPlayer =
+                          await playerRecoveryManager.recoverPlayer(
+                            artPlayerRef.current,
+                            container,
+                            playerOptions
+                          );
 
                         // 如果成功重建，更新播放器引用
                         if (newPlayer) {
@@ -3513,7 +3663,7 @@ function PlayPageClient() {
                         }
                       }
                     } catch (rebuildError) {
-                      console.error('播放器自动重建失败:', rebuildError);
+                      console.error('播放器自动恢复失败:', rebuildError);
                     }
                   }, 1000); // 延迟1秒后检查，避免与其他恢复机制冲突
                 }
@@ -3523,6 +3673,7 @@ function PlayPageClient() {
             // 监听成功事件，重置错误计数器
             hls.on(Hls.Events.FRAG_LOADED, function () {
               errorRetryCount = 0; // 重置错误计数器
+              currentSourceErrorCountRef.current = 0; // 重置当前源错误计数
 
               // 优化的恢复提示逻辑：更严格的恢复条件
               if (hlsErrorCount > 0 && !hasShownRecoveryNotification) {
@@ -3630,10 +3781,11 @@ function PlayPageClient() {
         'error',
         createRobustEventHandler(async (err: any) => {
           // 特别处理AbortError，防止播放器卡死
-          if (
+          const isAbortError =
             err?.name === 'AbortError' ||
-            (err?.message && err.message.includes('AbortError'))
-          ) {
+            (err?.message && err.message.includes('AbortError'));
+
+          if (isAbortError) {
             console.warn('检测到AbortError，尝试恢复播放状态');
             // 重置播放器状态
             stuckCountRef.current = 0;
@@ -3648,7 +3800,9 @@ function PlayPageClient() {
                 });
               }
             }, 100);
-            return;
+
+            // 不要直接return，继续检查是否需要重建
+            // （虽然AbortError本身不严重，但可能有其他累积的错误）
           }
           // 提供更详细的错误信息
           let errorMessage = '播放器错误: ';
@@ -3670,13 +3824,18 @@ function PlayPageClient() {
           console.error('❌', errorMessage, err);
 
           // 创建错误对象并记录到健康监控系统
-          const error = err instanceof Error ? err : new Error(errorMessage);
-          playerHealthMonitor.recordError(error);
+          // 但是AbortError不应该被记录为严重错误
+          if (!isAbortError) {
+            const error = err instanceof Error ? err : new Error(errorMessage);
+            playerHealthMonitor.recordError(error);
 
-          // 检查播放器健康状态
-          const isHealthy = checkPlayerHealth(artPlayerRef.current);
-          if (!isHealthy) {
-            console.warn('⚠️ 播放器健康状态异常');
+            // 检查播放器健康状态
+            const isHealthy = checkPlayerHealth(artPlayerRef.current);
+            if (!isHealthy) {
+              console.warn('⚠️ 播放器健康状态异常');
+            }
+          } else {
+            console.log('ℹ️ AbortError不计入错误统计');
           }
 
           // 如果是视频元素错误，提供更具体的处理
@@ -3705,11 +3864,154 @@ function PlayPageClient() {
             return;
           }
 
+          // 记录当前源错误（AbortError除外）
+          if (!isAbortError) {
+            recordCurrentSourceError();
+          }
+
           // 检查是否需要重建播放器
           setTimeout(async () => {
             try {
               if (playerHealthMonitor.shouldRebuildPlayer()) {
-                console.log('⚠️ 检测到严重错误，触发播放器自动重建...');
+                console.log('⚠️ 检测到严重错误，开始智能恢复流程...');
+
+                // 策略1: 使用真实源列表切换（基于播放器下方的换源列表）
+                console.log('🔍 检查源切换条件:', {
+                  availableSourcesCount: availableSources.length,
+                  shouldSwitch: shouldSwitchSource(),
+                  currentSource,
+                  currentId,
+                });
+
+                if (availableSources.length > 1 && shouldSwitchSource()) {
+                  console.log(
+                    `🔄 步骤1: 切换到下一个真实源站 (当前: ${currentSource})`
+                  );
+
+                  // 找到当前源在列表中的索引
+                  const currentIndex = availableSources.findIndex(
+                    (s) => s.source === currentSource && s.id === currentId
+                  );
+
+                  console.log(
+                    '📍 当前源索引:',
+                    currentIndex,
+                    '总源数:',
+                    availableSources.length
+                  );
+                  console.log(
+                    '📋 所有可用源:',
+                    availableSources.map((s) => `${s.source_name}(${s.source})`)
+                  );
+                  console.log(
+                    '🔖 已尝试的源:',
+                    Array.from(triedSourcesRef.current)
+                  );
+
+                  // 从下一个源开始尝试
+                  let nextIndex = (currentIndex + 1) % availableSources.length;
+                  let attempts = 0;
+                  let foundNewSource = false;
+
+                  // 尝试找到一个未尝试过的源
+                  while (attempts < availableSources.length) {
+                    const nextSource = availableSources[nextIndex];
+                    const sourceKey = `${nextSource.source}-${nextSource.id}`;
+
+                    console.log(
+                      `🔍 检查源 [${attempts + 1}/${availableSources.length}]:`,
+                      {
+                        source: nextSource.source_name,
+                        sourceKey,
+                        alreadyTried: triedSourcesRef.current.has(sourceKey),
+                      }
+                    );
+
+                    // 检查是否已经尝试过这个源
+                    if (!triedSourcesRef.current.has(sourceKey)) {
+                      foundNewSource = true;
+                      console.log(
+                        `✅ 找到下一个源: ${nextSource.source_name} (${
+                          triedSourcesRef.current.size + 1
+                        }/${availableSources.length})`
+                      );
+
+                      // 记录已尝试的源
+                      triedSourcesRef.current.add(sourceKey);
+                      currentSourceIndexRef.current = nextIndex;
+
+                      // 标记源切换
+                      markSourceSwitch();
+
+                      // 通知用户
+                      if (artPlayerRef.current?.notice) {
+                        artPlayerRef.current.notice.show(
+                          `正在切换到: ${nextSource.source_name} (${triedSourcesRef.current.size}/${availableSources.length})`
+                        );
+                      }
+
+                      // 使用 handleSourceChange 切换源
+                      console.log('🔄 调用 handleSourceChange:', {
+                        source: nextSource.source,
+                        id: nextSource.id,
+                        title: nextSource.title || videoTitleRef.current,
+                      });
+
+                      try {
+                        await handleSourceChange(
+                          nextSource.source,
+                          nextSource.id,
+                          nextSource.title || videoTitleRef.current
+                        );
+                        console.log('✅ handleSourceChange 完成');
+                      } catch (switchError) {
+                        console.error(
+                          '❌ handleSourceChange 失败:',
+                          switchError
+                        );
+                      }
+
+                      // 重置健康状态，给新源一个机会
+                      playerHealthMonitor.resetHealthStatus();
+
+                      return; // 不需要重建，只是切换源
+                    }
+
+                    // 尝试下一个源
+                    nextIndex = (nextIndex + 1) % availableSources.length;
+                    attempts++;
+                  }
+
+                  // 所有源都尝试完了
+                  if (!foundNewSource) {
+                    console.error('❌ 所有播放源都已尝试，全部失败');
+                    setAllSourcesFailed(true);
+
+                    // 通知用户
+                    if (artPlayerRef.current?.notice) {
+                      artPlayerRef.current.notice.show(
+                        '所有播放源都无法使用，请稍后重试',
+                        5000
+                      );
+                    }
+
+                    // 显示错误信息
+                    setError('所有播放源都无法访问，请检查网络连接或稍后重试');
+
+                    return; // 不再尝试重建
+                  }
+                } else if (availableSources.length <= 1) {
+                  console.log('⚠️ 只有一个源，无法切换');
+                } else if (
+                  sourceSwitcherRef.current &&
+                  sourceSwitcherRef.current.backupSources.length > 0
+                ) {
+                  console.log('⏳ 不满足源切换条件，继续等待当前源加载...');
+                  return; // 等待当前源继续尝试
+                }
+
+                // 策略2: 如果没有更多源，或切换源失败，则重建播放器
+                console.log('🔄 步骤2: 重建播放器实例...');
 
                 const container = artRef.current;
                 if (!container) {
@@ -3729,9 +4031,9 @@ function PlayPageClient() {
                   type: 'm3u8',
                 };
 
-                // 调用自动恢复处理
-                const newPlayer = await handlePlayerError(
-                  error,
+                // 直接调用重建管理器
+                console.log('🔧 开始执行播放器重建...');
+                const newPlayer = await playerRecoveryManager.recoverPlayer(
                   artPlayerRef.current,
                   container,
                   playerOptions
@@ -3744,7 +4046,7 @@ function PlayPageClient() {
                 }
               }
             } catch (rebuildError) {
-              console.error('播放器自动重建失败:', rebuildError);
+              console.error('播放器自动恢复失败:', rebuildError);
             }
           }, 1000);
         }, 'error')

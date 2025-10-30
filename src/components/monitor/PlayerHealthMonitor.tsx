@@ -15,8 +15,17 @@ export default function PlayerHealthMonitor() {
 
   useEffect(() => {
     const updateData = () => {
-      setHealthStatus(playerHealthMonitor.getHealthStatus());
-      setStats(getAllPlayerHealthStats());
+      const health = playerHealthMonitor.getHealthStatus();
+      const statsData = getAllPlayerHealthStats();
+
+      console.log('🔍 监控页面更新数据:', {
+        totalRebuilds: statsData.rebuild.totalRebuilds,
+        successfulRebuilds: statsData.rebuild.successfulRebuilds,
+        failedRebuilds: statsData.rebuild.failedRebuilds,
+      });
+
+      setHealthStatus(health);
+      setStats(statsData);
     };
 
     updateData();

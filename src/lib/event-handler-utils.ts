@@ -231,37 +231,17 @@ export function isComposedPathError(error: Error | string): boolean {
 
 /**
  * 检查错误是否应该被静默处理
+ * 注意：composedPath 错误不再被静默，因为我们有自动重建机制来处理它们
  */
 export function shouldSilenceError(error: Error | string): boolean {
   const message = typeof error === 'string' ? error : error.message || '';
   const silentErrorPatterns = [
-    'composedPath',
-    'undefined is not an object',
-    'Cannot read property',
-    'Cannot read properties',
-    'TypeError: undefined is not an object',
-    'TypeError: null is not an object',
-    'event.composedPath is not a function',
-    'event.composedPath is not defined',
-    'target.composedPath',
-    'TypeError: e.composedPath',
-    'ReferenceError',
-    'target is not defined',
-    'path.composedPath',
-    'composedPath of undefined',
-    'composedPath of null',
-    'event is undefined',
-    'event is null',
-    'event.path is undefined',
-    'event.target is undefined',
-    'path.push is not a function',
-    'parentNode is undefined',
-    'Failed to execute',
-    'Illegal invocation',
-    'undefined is not a function',
-    'is not iterable',
+    // 移除了 composedPath 相关的模式，因为我们现在有更好的处理机制
+    // 只保留真正应该被静默的错误
     'AbortError',
     'The operation was aborted',
+    'The play() request was interrupted',
+    'The fetching process for the media resource was aborted',
   ];
 
   return silentErrorPatterns.some((pattern) =>

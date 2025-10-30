@@ -91,6 +91,8 @@ export class PlayerRecoveryManager {
     container: HTMLElement,
     options: any
   ): Promise<any> {
+    console.log('🎯 rebuildPlayer 方法被调用');
+
     if (this.isRebuildingFlag) {
       console.warn('播放器正在重建中，跳过重复请求');
       return null;
@@ -102,7 +104,9 @@ export class PlayerRecoveryManager {
     const startTime = performance.now();
 
     try {
-      console.log(`🔄 开始第 ${this.rebuildAttempts} 次播放器重建...`);
+      console.log(
+        `🔄 开始第 ${this.rebuildAttempts} 次播放器重建... (startTime: ${startTime})`
+      );
 
       // 显示加载指示器
       if (this.config.showLoadingIndicator) {
@@ -161,6 +165,15 @@ export class PlayerRecoveryManager {
       const endTime = performance.now();
       const duration = endTime - startTime;
       const healthStatus = playerHealthMonitor.getHealthStatus();
+
+      console.log('📊 准备记录重建事件 (成功):', {
+        timestamp: Date.now(),
+        success: true,
+        reason: healthStatus.rebuildReason || '未知原因',
+        duration,
+        attemptNumber: this.rebuildAttempts,
+      });
+
       playerHealthStats.recordRebuildEvent({
         timestamp: Date.now(),
         success: true,
@@ -169,7 +182,7 @@ export class PlayerRecoveryManager {
         attemptNumber: this.rebuildAttempts,
       });
 
-      console.log('✅ 播放器重建成功');
+      console.log('✅ 播放器重建成功，统计已记录');
       return newPlayer;
     } catch (error) {
       console.error(`❌ 第 ${this.rebuildAttempts} 次重建失败:`, error);
@@ -178,6 +191,16 @@ export class PlayerRecoveryManager {
       const endTime = performance.now();
       const duration = endTime - startTime;
       const healthStatus = playerHealthMonitor.getHealthStatus();
+
+      console.log('📊 准备记录重建事件 (失败):', {
+        timestamp: Date.now(),
+        success: false,
+        reason: healthStatus.rebuildReason || '未知原因',
+        duration,
+        attemptNumber: this.rebuildAttempts,
+        error: (error as Error).message,
+      });
+
       playerHealthStats.recordRebuildEvent({
         timestamp: Date.now(),
         success: false,
@@ -187,6 +210,8 @@ export class PlayerRecoveryManager {
         error: (error as Error).message,
         errorStack: (error as Error).stack,
       });
+
+      console.log('❌ 播放器重建失败，统计已记录');
 
       // 隐藏加载指示器
       if (this.config.showLoadingIndicator) {

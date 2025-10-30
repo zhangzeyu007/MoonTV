@@ -63,11 +63,11 @@ export class PlayerHealthMonitor {
   // 重建冷却期（30秒）
   private readonly REBUILD_COOLDOWN = 30000;
 
-  // 连续错误阈值
-  private readonly CONSECUTIVE_ERROR_THRESHOLD = 5;
+  // 连续错误阈值（降低到3次，因为 composedPath 错误很严重）
+  private readonly CONSECUTIVE_ERROR_THRESHOLD = 3;
 
-  // 严重错误阈值
-  private readonly CRITICAL_ERROR_THRESHOLD = 3;
+  // 严重错误阈值（降低到2次，更快触发重建）
+  private readonly CRITICAL_ERROR_THRESHOLD = 2;
 
   // 错误时间窗口（5秒内的错误视为连续）
   private readonly ERROR_TIME_WINDOW = 5000;
@@ -130,8 +130,12 @@ export class PlayerHealthMonitor {
       return 'critical';
     }
 
-    // 严重错误
+    // 严重错误 - 包括 composedPath 错误
     if (
+      lowerMessage.includes('composedpath') ||
+      lowerMessage.includes('composed path') ||
+      lowerMessage.includes('undefined is not an object') ||
+      lowerMessage.includes('cannot read property') ||
       lowerMessage.includes('media decode') ||
       lowerMessage.includes('播放失败') ||
       lowerMessage.includes('player instance') ||
@@ -188,6 +192,15 @@ export class PlayerHealthMonitor {
       `连续错误: ${this.healthStatus.consecutiveErrors}`,
       `严重错误: ${this.healthStatus.criticalErrorCount}`
     );
+
+    // 检查是否需要重建
+    console.log('🔍 检查重建条件:', {
+      consecutiveErrors: this.healthStatus.consecutiveErrors,
+      consecutiveThreshold: this.CONSECUTIVE_ERROR_THRESHOLD,
+      criticalErrorCount: this.healthStatus.criticalErrorCount,
+      criticalThreshold: this.CRITICAL_ERROR_THRESHOLD,
+      shouldRebuild: this.shouldRebuildPlayer(),
+    });
   }
 
   /**

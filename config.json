@@ -94,6 +94,10 @@
       "api": "https://ckzy.me/api.php/provide/vod",
       "name": "CK资源"
     },
+    "AV4": {
+      "api": "https://hsckzy888.com/api.php/provide/vod",
+      "name": "仓库资源"
+    },
     "AV5": {
       "api": "https://api.bwzyz.com/api.php/provide/vod",
       "name": "百万资源"
@@ -126,6 +130,10 @@
       "api": "https://xzybb1.com/api.php/provide/vod",
       "name": "幸福资源"
     },
+    "AV13": {
+      "api": "https://ckbh1.xyz/api.php/provide/vod/",
+      "name": "ck百货"
+    },
     "AV14": {
       "api": "https://fqzy.me//api.php/provide/vod",
       "name": "番茄资源"
@@ -153,6 +161,10 @@
     "AV20": {
       "api": "https://lbapi9.com/api.php/provide/vod",
       "name": "乐播资源"
+    },
+    "AV21": {
+      "api": "https://apilsbzy1.com/api.php/provide/vod",
+      "name": "老资源"
     }
   }
 }
