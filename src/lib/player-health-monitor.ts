@@ -130,8 +130,7 @@ export class PlayerHealthMonitor {
       return 'critical';
     }
 
-    // 严重错误 - 特别关注 composedPath 错误
-    // composedPath 错误通常表示事件系统损坏，需要立即处理
+    // 严重错误
     if (
       lowerMessage.includes('composedpath') ||
       lowerMessage.includes('composed path') ||
@@ -143,18 +142,6 @@ export class PlayerHealthMonitor {
       lowerMessage.includes('hls fatal') ||
       lowerMessage.includes('cannot play')
     ) {
-      // 如果是 composedPath 相关错误，记录特殊标记
-      if (
-        lowerMessage.includes('composedpath') ||
-        lowerMessage.includes('composed path') ||
-        (lowerMessage.includes('undefined is not an object') &&
-          lowerMessage.includes('e.'))
-      ) {
-        console.warn('🚨 检测到 composedPath 相关错误，这是严重的事件系统问题');
-        // 标记需要重建
-        this.healthStatus.needsRebuild = true;
-        this.healthStatus.rebuildReason = 'composedPath 错误';
-      }
       return 'high';
     }
 

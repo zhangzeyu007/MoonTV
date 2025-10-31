@@ -12,7 +12,6 @@ import {
   shouldSilenceError,
 } from './event-handler-utils';
 import { ErrorSeverity, playerHealthMonitor } from './player-health-monitor';
-import { playerHealthStats } from './player-health-stats';
 
 /**
  * ErrorBoundary 类
@@ -158,16 +157,6 @@ export class ErrorBoundary implements IErrorBoundary {
     }
 
     this.lastErrorTime.set(context, now);
-
-    // 记录错误到统计系统
-    playerHealthStats.recordErrorEvent({
-      timestamp: now,
-      type: record.type,
-      severity,
-      message: errorMessage,
-      context,
-      stack: error.stack,
-    });
 
     // 记录错误（根据类型和严重程度决定日志级别）
     if (shouldSilenceError(error)) {

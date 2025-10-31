@@ -8,7 +8,6 @@ import {
   initPlayerEventHandling,
 } from './player-event-integration';
 import { playerHealthMonitor } from './player-health-monitor';
-import { playerHealthStats } from './player-health-stats';
 import { playerStateManager } from './player-state-manager';
 import {
   hideLoadingIndicator,
@@ -161,57 +160,10 @@ export class PlayerRecoveryManager {
       // 通知用户
       notifyUser('播放器已自动修复', 'success');
 
-      // 记录成功的重建事件
-      const endTime = performance.now();
-      const duration = endTime - startTime;
-      const healthStatus = playerHealthMonitor.getHealthStatus();
-
-      console.log('📊 准备记录重建事件 (成功):', {
-        timestamp: Date.now(),
-        success: true,
-        reason: healthStatus.rebuildReason || '未知原因',
-        duration,
-        attemptNumber: this.rebuildAttempts,
-      });
-
-      playerHealthStats.recordRebuildEvent({
-        timestamp: Date.now(),
-        success: true,
-        reason: healthStatus.rebuildReason || '未知原因',
-        duration,
-        attemptNumber: this.rebuildAttempts,
-      });
-
-      console.log('✅ 播放器重建成功，统计已记录');
+      console.log('✅ 播放器重建成功');
       return newPlayer;
     } catch (error) {
       console.error(`❌ 第 ${this.rebuildAttempts} 次重建失败:`, error);
-
-      // 记录失败的重建事件
-      const endTime = performance.now();
-      const duration = endTime - startTime;
-      const healthStatus = playerHealthMonitor.getHealthStatus();
-
-      console.log('📊 准备记录重建事件 (失败):', {
-        timestamp: Date.now(),
-        success: false,
-        reason: healthStatus.rebuildReason || '未知原因',
-        duration,
-        attemptNumber: this.rebuildAttempts,
-        error: (error as Error).message,
-      });
-
-      playerHealthStats.recordRebuildEvent({
-        timestamp: Date.now(),
-        success: false,
-        reason: healthStatus.rebuildReason || '未知原因',
-        duration,
-        attemptNumber: this.rebuildAttempts,
-        error: (error as Error).message,
-        errorStack: (error as Error).stack,
-      });
-
-      console.log('❌ 播放器重建失败，统计已记录');
 
       // 隐藏加载指示器
       if (this.config.showLoadingIndicator) {

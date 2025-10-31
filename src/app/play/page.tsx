@@ -12,6 +12,10 @@ import Hls from 'hls.js';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
+import {
+  AutoSourceSwitcher,
+  createAutoSourceSwitcher,
+} from '@/lib/auto-source-switcher';
 import { SmartSourceSwitcher } from '@/lib/backup-source-manager';
 import {
   deleteFavorite,
@@ -47,6 +51,7 @@ import {
 } from '@/lib/player-event-integration';
 import { playerHealthMonitor } from '@/lib/player-health-monitor';
 import { playerRecoveryManager } from '@/lib/player-recovery-manager';
+import { showFatalError } from '@/lib/player-ui-feedback';
 import { SearchResult } from '@/lib/types';
 import {
   detectPiPSupport,
@@ -78,7 +83,7 @@ function PlayPageClient() {
     // 初始化播放器事件处理系统
     initPlayerEventHandling();
 
-    // 添加全局错误捕获机制（安全网）
+    // 添加全局错误捕获机制 - 直接显示弹窗，不尝试自动修复
     const handleGlobalError = (event: ErrorEvent) => {
       const error = event.error;
 
@@ -89,44 +94,15 @@ function PlayPageClient() {
         (error.message.includes('composedPath') ||
           error.message.includes('undefined is not an object'))
       ) {
-        console.error('🚨 捕获到 composedPath 全局错误:', error);
+        console.error('🚨 捕获到严重的 composedPath 错误:', error);
 
-        // 记录错误到健康监控
-        playerHealthMonitor.recordError(error);
-
-        // 检查是否需要重建播放器
-        if (playerHealthMonitor.shouldRebuildPlayer()) {
-          console.log('⚠️ 全局错误触发播放器重建');
-
-          // 获取播放器容器
-          const container = artRef.current;
-          if (container && artPlayerRef.current) {
-            const playerOptions = {
-              url: videoUrl,
-              volume: lastVolumeRef.current,
-              autoplay: true,
-              poster: videoCover,
-              theme: '#22c55e',
-              lang: 'zh-cn',
-              pip: isPiPSupported,
-              type: 'm3u8',
-            };
-
-            // 异步执行重建
-            playerRecoveryManager
-              .recoverPlayer(artPlayerRef.current, container, playerOptions)
-              .then((newPlayer) => {
-                if (newPlayer) {
-                  artPlayerRef.current = newPlayer;
-                  console.log('✅ 全局错误触发的播放器重建成功');
-                }
-              })
-              .catch((rebuildError) => {
-                console.error('❌ 全局错误触发的播放器重建失败:', rebuildError);
-                // recoverPlayer 内部已经显示了致命错误弹窗
-              });
-          }
-        }
+        // 直接显示致命错误弹窗，要求用户手动刷新
+        showFatalError({
+          title: '播放器遇到严重错误',
+          message: '播放器事件处理出现问题，无法继续播放',
+          suggestion: '请点击下方按钮刷新页面以恢复正常播放',
+          error: error,
+        });
 
         // 阻止错误继续传播
         event.preventDefault();
@@ -145,8 +121,40 @@ function PlayPageClient() {
       ) {
         console.error('🚨 捕获到 composedPath Promise 拒绝:', error);
 
-        // 记录错误到健康监控
-        playerHealthMonitor.recordError(error);
+        // 直接显示致命错误弹窗
+        showFatalError({
+          title: '播放器遇到严重错误',
+          message: '播放器事件处理出现问题，无法继续播放',
+          suggestion: '请点击下方按钮刷新页面以恢复正常播放',
+          error: error,
+        });
+
+        // 阻止错误继续传播
+        event.preventDefault();
+      }
+
+      // 检测 URL 类型错误
+      if (
+        error &&
+        error.message &&
+        (error.message.includes('option.url') ||
+          error.message.includes('require') ||
+          error.message.includes('string') ||
+          error.message.includes('number'))
+      ) {
+        console.error('🚨 捕获到 URL 类型错误:', error, {
+          timestamp: new Date().toISOString(),
+          errorMessage: error.message,
+          errorStack: error.stack,
+        });
+
+        // 显示致命错误弹窗
+        showFatalError({
+          title: '播放源数据错误',
+          message: '播放源URL格式不正确，无法继续播放',
+          suggestion: '请刷新页面重试或联系管理员',
+          error: error,
+        });
 
         // 阻止错误继续传播
         event.preventDefault();
@@ -564,6 +572,11 @@ function PlayPageClient() {
         quality: quality,
       });
 
+      // 更新自动源切换器的网络质量
+      if (autoSourceSwitcherRef.current) {
+        autoSourceSwitcherRef.current.updateNetworkQuality(quality);
+      }
+
       // 根据网络质量调整播放器配置
       if (artPlayerRef.current?.video?.hls) {
         const hls = artPlayerRef.current.video.hls;
@@ -816,6 +829,9 @@ function PlayPageClient() {
 
   // 智能源切换器
   const sourceSwitcherRef = useRef<SmartSourceSwitcher | null>(null);
+
+  // 自动源切换器（新）
+  const autoSourceSwitcherRef = useRef<AutoSourceSwitcher | null>(null);
 
   // 源切换冷却期管理
   const lastSourceSwitchTimeRef = useRef<number>(0);
@@ -3413,6 +3429,14 @@ function PlayPageClient() {
               // 记录当前源错误
               recordCurrentSourceError();
 
+              // 记录错误到自动切换器
+              if (autoSourceSwitcherRef.current) {
+                const errorType = data.fatal
+                  ? `fatal_${data.type}_${data.details || 'unknown'}`
+                  : `non_fatal_${data.type}_${data.details || 'unknown'}`;
+                autoSourceSwitcherRef.current.recordSourceError(errorType);
+              }
+
               // 清除之前的错误防抖定时器
               if (errorDebounceRef.current) {
                 clearTimeout(errorDebounceRef.current);
@@ -4637,6 +4661,110 @@ function PlayPageClient() {
       console.log('  ✅ 播放卡死智能恢复');
       console.log('  ✅ 事件安全性加固');
 
+      // 初始化自动源切换器
+      if (!autoSourceSwitcherRef.current && availableSources.length > 0) {
+        console.log('🔄 初始化自动源切换器...');
+
+        autoSourceSwitcherRef.current = createAutoSourceSwitcher({
+          enabled: true,
+          timeoutThreshold: 6000, // 6秒超时
+          cooldownPeriod: 10000, // 10秒冷却期
+          minimumAttemptTime: 5000, // 5秒最小尝试时间
+          errorThreshold: 3, // 3次错误阈值
+          maxSwitchAttempts: 5, // 最多尝试5个源
+          networkAdaptive: true, // 启用网络自适应
+        });
+
+        // 初始化切换器
+        autoSourceSwitcherRef.current.initialize(
+          artPlayerRef.current,
+          availableSources.map((s) => ({
+            source: s.source,
+            episodeUrl: s.episodes?.[currentEpisodeIndex] || '',
+            url: s.episodes?.[currentEpisodeIndex] || '',
+          }))
+        );
+
+        // 监听切换事件
+        autoSourceSwitcherRef.current.on('switch-start', (data: any) => {
+          console.log('🔄 开始切换源:', data);
+          setVideoLoadingStage('sourceChanging');
+          setIsVideoLoading(true);
+        });
+
+        autoSourceSwitcherRef.current.on('switch-success', (data: any) => {
+          console.log('✅ 源切换成功:', data);
+          setIsVideoLoading(false);
+
+          // 更新当前源信息
+          if (data.source?.source) {
+            setCurrentSource(data.source.source.name || '');
+            setCurrentId(data.source.source.id || '');
+          }
+
+          // 记录到性能监控
+          // TODO: 等待TypeScript类型更新后启用
+          // performanceMonitor.recordSourceSwitch({
+          //   timestamp: Date.now(),
+          //   fromSource: currentSourceRef.current || 'unknown',
+          //   toSource: data.source?.episodeUrl || 'unknown',
+          //   reason: 'auto_switch',
+          //   success: true,
+          //   duration: data.duration || 0,
+          //   loadDuration: 0,
+          //   networkQuality: networkQualityRef.current,
+          // });
+        });
+
+        autoSourceSwitcherRef.current.on('switch-failed', (data: any) => {
+          console.error('❌ 源切换失败:', data);
+          setIsVideoLoading(false);
+        });
+
+        autoSourceSwitcherRef.current.on('all-sources-failed', (data: any) => {
+          console.error('❌ 所有源都失败了:', data);
+          setAllSourcesFailed(true);
+          setIsVideoLoading(false);
+
+          // 根据情况显示不同的错误消息
+          if (data.hasValidSources === false || data.availableSources === 0) {
+            // 没有有效源时显示"无可用播放源"致命错误
+            console.error('[PlayPage] 没有任何有效的播放源');
+            showFatalError({
+              title: '无可用播放源',
+              message: '所有播放源都已失败或URL格式不正确，无法继续播放',
+              suggestion: '请稍后重试或联系管理员',
+            });
+          } else {
+            // 有有效源但都失败时显示通知
+            console.warn('[PlayPage] 有可用源但自动切换失败，显示错误提示');
+            if (artPlayerRef.current?.notice) {
+              artPlayerRef.current.notice.show(
+                '所有播放源都不可用，请稍后重试或刷新页面',
+                5000
+              );
+            }
+
+            // 也可以选择显示致命错误弹窗
+            showFatalError({
+              title: '播放失败',
+              message: `已尝试 ${data.switchAttempts} 次切换源，但都失败了`,
+              suggestion: '请刷新页面重试或稍后再试',
+            });
+          }
+        });
+
+        // 更新网络质量
+        autoSourceSwitcherRef.current.updateNetworkQuality(
+          networkQualityRef.current
+        );
+
+        // 启动自动切换
+        autoSourceSwitcherRef.current.start();
+
+        console.log('✅ 自动源切换器已启动');
+      }
+
       // 错误处理由全局系统管理
     } catch (err) {
       console.error('创建播放器失败:', err);
@@ -4682,6 +4810,13 @@ function PlayPageClient() {
       if (networkMonitorIntervalRef.current) {
         clearInterval(networkMonitorIntervalRef.current);
         networkMonitorIntervalRef.current = null;
+      }
+
+      // 清理自动源切换器
+      if (autoSourceSwitcherRef.current) {
+        autoSourceSwitcherRef.current.destroy();
+        autoSourceSwitcherRef.current = null;
+        console.log('✅ 自动源切换器已清理');
       }
 
       // 确保播放器完全销毁

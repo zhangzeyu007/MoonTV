@@ -7,7 +7,6 @@ import { useRealTimeMonitor } from '@/hooks/useRealTimeMonitor';
 
 import NetworkChart from '@/components/monitor/NetworkChart';
 import PerformanceChart from '@/components/monitor/PerformanceChart';
-import PlayerHealthMonitor from '@/components/monitor/PlayerHealthMonitor';
 import RealTimeMetricsComponent from '@/components/monitor/RealTimeMetrics';
 import RealTimeRequestMonitor from '@/components/monitor/RealTimeRequestMonitor';
 import SourceQualityComponent from '@/components/monitor/SourceQuality';
@@ -105,11 +104,6 @@ function MonitorPageContent() {
             {error}
           </div>
         )}
-
-        {/* 播放器健康监控 */}
-        <div className='mb-6'>
-          <PlayerHealthMonitor />
-        </div>
 
         {/* 实时指标面板 */}
         <div className='grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6'>

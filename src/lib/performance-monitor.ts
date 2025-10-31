@@ -84,6 +84,28 @@ export interface PlayerStateMetrics {
   isBuffering: boolean;
 }
 
+export interface SourceSwitchMetrics {
+  timestamp: number;
+  fromSource: string;
+  toSource: string;
+  reason: string;
+  success: boolean;
+  duration: number;
+  loadDuration: number;
+  networkQuality: string;
+  errorMessage?: string;
+}
+
+export interface SourcePerformanceMetrics {
+  sourceName: string;
+  totalAttempts: number;
+  successfulAttempts: number;
+  failedAttempts: number;
+  averageLoadTime: number;
+  successRate: number;
+  lastUsedTime: number;
+}
+
 class PerformanceMonitor {
   private metrics: PerformanceMetrics[] = [];
   private currentSession: Partial<PerformanceMetrics> = {};
@@ -879,6 +901,45 @@ class PerformanceMonitor {
     this.metrics = testMetrics;
     this.saveMetrics();
     console.log('已生成测试数据:', testMetrics.length, '条记录');
+  }
+
+  /**
+   * 记录源切换事件
+   */
+  recordSourceSwitch(metrics: SourceSwitchMetrics): void {
+    // 可以在这里添加源切换历史记录
+    console.log('[PerformanceMonitor] 源切换事件:', metrics);
+
+    // 更新实时指标
+    if (metrics.success) {
+      this.currentRealTimeSession.currentSource = metrics.toSource;
+    }
+  }
+
+  /**
+   * 获取源切换统计
+   */
+  getSourceSwitchStats(): {
+    totalSwitches: number;
+    successfulSwitches: number;
+    failedSwitches: number;
+    averageSwitchTime: number;
+  } {
+    // 这里可以从 switchStatistics 获取数据
+    return {
+      totalSwitches: 0,
+      successfulSwitches: 0,
+      failedSwitches: 0,
+      averageSwitchTime: 0,
+    };
+  }
+
+  /**
+   * 获取源性能统计
+   */
+  getSourcePerformanceStats(): SourcePerformanceMetrics[] {
+    // 这里可以从 enhancedSourceSelector 获取数据
+    return [];
   }
 }
 
