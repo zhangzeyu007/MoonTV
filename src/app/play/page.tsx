@@ -102,6 +102,9 @@ function PlayPageClient() {
           message: '播放器事件处理出现问题，无法继续播放',
           suggestion: '请点击下方按钮刷新页面以恢复正常播放',
           error: error,
+          enableCleanup: true,
+          refreshTimeout: 3000,
+          showFallbackButton: true,
         });
 
         // 阻止错误继续传播
@@ -127,6 +130,9 @@ function PlayPageClient() {
           message: '播放器事件处理出现问题，无法继续播放',
           suggestion: '请点击下方按钮刷新页面以恢复正常播放',
           error: error,
+          enableCleanup: true,
+          refreshTimeout: 3000,
+          showFallbackButton: true,
         });
 
         // 阻止错误继续传播
@@ -154,6 +160,9 @@ function PlayPageClient() {
           message: '播放源URL格式不正确，无法继续播放',
           suggestion: '请刷新页面重试或联系管理员',
           error: error,
+          enableCleanup: true,
+          refreshTimeout: 3000,
+          showFallbackButton: true,
         });
 
         // 阻止错误继续传播
@@ -3812,35 +3821,24 @@ function PlayPageClient() {
               currentSourceErrorCountRef.current = 0; // 重置当前源错误计数
 
               // 优化的恢复提示逻辑：更严格的恢复条件
+              // 不显示播放恢复提示，只重置错误计数
               if (hlsErrorCount > 0 && !hasShownRecoveryNotification) {
                 const now = Date.now();
                 const cooldown = getNotificationCooldown();
 
                 // 检查是否在冷却期内，避免频繁提示
                 if (now - lastNotificationTime >= cooldown) {
-                  // 只有在连续错误后成功恢复时才显示提示
+                  // 只有在连续错误后成功恢复时才重置计数
                   if (consecutiveErrorCount >= 2 || hlsErrorCount >= 3) {
-                    setHlsErrorDetails({
-                      type: '播放恢复',
-                      message: '视频播放已恢复正常',
-                      suggestion: '问题已自动解决',
-                    });
-                    setShowHlsErrorTip(true);
-                    setLastNotificationTime(now);
+                    // 不显示恢复提示，直接重置错误计数
                     setHasShownRecoveryNotification(true);
+                    setLastNotificationTime(now);
 
-                    // 1.5秒后隐藏成功提示，减少干扰
+                    // 延迟重置错误计数
                     setTimeout(() => {
-                      setShowHlsErrorTip(false);
-                      setTimeout(() => {
-                        setHlsErrorDetails(null);
-                        // 延迟重置错误计数，避免立即触发新的错误提示
-                        setTimeout(() => {
-                          setHlsErrorCount(0);
-                          setConsecutiveErrorCount(0);
-                        }, 1000);
-                      }, 300);
-                    }, 1500);
+                      setHlsErrorCount(0);
+                      setConsecutiveErrorCount(0);
+                    }, 1000);
                   }
                 }
               }
@@ -4734,6 +4732,9 @@ function PlayPageClient() {
               title: '无可用播放源',
               message: '所有播放源都已失败或URL格式不正确，无法继续播放',
               suggestion: '请稍后重试或联系管理员',
+              enableCleanup: true,
+              refreshTimeout: 3000,
+              showFallbackButton: true,
             });
           } else {
             // 有有效源但都失败时显示通知
@@ -4750,6 +4751,9 @@ function PlayPageClient() {
               title: '播放失败',
               message: `已尝试 ${data.switchAttempts} 次切换源，但都失败了`,
               suggestion: '请刷新页面重试或稍后再试',
+              enableCleanup: true,
+              refreshTimeout: 3000,
+              showFallbackButton: true,
             });
           }
         });

@@ -3,6 +3,30 @@
  * 提供加载指示器、通知和错误页面
  */
 
+import { refreshCleanupManager } from './refresh-cleanup-manager';
+import { getRefreshExecutor, RefreshOptions } from './refresh-executor';
+
+/**
+ * 增强的致命错误配置接口
+ */
+export interface EnhancedFatalErrorConfig {
+  title: string;
+  message: string;
+  suggestion: string;
+  error?: Error;
+
+  // 新增选项
+  enableCleanup?: boolean; // 默认true
+  refreshTimeout?: number; // 默认3000ms
+  showFallbackButton?: boolean; // 默认true
+
+  // 回调函数
+  onRefresh?: () => void;
+  onBack?: () => void;
+  onCleanupComplete?: (report: any) => void;
+  onRefreshTimeout?: () => void;
+}
+
 /**
  * 显示加载指示器
  */
@@ -237,18 +261,30 @@ function showCustomNotification(
 }
 
 /**
- * 显示致命错误页面
+ * 显示致命错误页面（增强版）
  */
-export function showFatalError(config: {
-  title: string;
-  message: string;
-  suggestion: string;
-  error?: Error;
-  onRefresh?: () => void;
-  onBack?: () => void;
-}): void {
+export function showFatalError(config: EnhancedFatalErrorConfig): void {
+  const {
+    enableCleanup = true,
+    refreshTimeout = 3000,
+    showFallbackButton = true,
+  } = config;
+
   const errorPage = document.createElement('div');
   errorPage.className = 'player-fatal-error';
+
+  // 构建按钮HTML
+  const buttonsHtml = showFallbackButton
+    ? `
+      <button class="error-btn error-btn-primary" id="error-refresh-btn">刷新页面</button>
+      <button class="error-btn error-btn-warning" id="error-force-refresh-btn" title="使用更激进的刷新策略">强制刷新</button>
+      <button class="error-btn error-btn-secondary" id="error-back-btn">返回</button>
+    `
+    : `
+      <button class="error-btn error-btn-primary" id="error-refresh-btn">刷新页面</button>
+      <button class="error-btn error-btn-secondary" id="error-back-btn">返回</button>
+    `;
+
   errorPage.innerHTML = `
     <div class="error-content">
       <div class="error-icon">⚠️</div>
@@ -256,8 +292,7 @@ export function showFatalError(config: {
       <p class="error-message">${config.message}</p>
       <p class="error-suggestion">${config.suggestion}</p>
       <div class="error-actions">
-        <button class="error-btn error-btn-primary" id="error-refresh-btn">刷新页面</button>
-        <button class="error-btn error-btn-secondary" id="error-back-btn">返回</button>
+        ${buttonsHtml}
       </div>
       ${
         config.error
@@ -366,6 +401,23 @@ export function showFatalError(config: {
       background: rgba(255, 255, 255, 0.2);
     }
 
+    .error-btn-warning {
+      background: #ff9800;
+      color: #fff;
+    }
+
+    .error-btn-warning:hover {
+      background: #f57c00;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(255, 152, 0, 0.4);
+    }
+
+    .error-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
     .error-details {
       text-align: left;
       margin-top: 24px;
@@ -406,16 +458,68 @@ export function showFatalError(config: {
     document.body.appendChild(errorPage);
   }
 
+  // 创建刷新执行器
+  const refreshExecutor = getRefreshExecutor(refreshCleanupManager);
+
   // 绑定事件
   const refreshBtn = document.getElementById('error-refresh-btn');
+  const forceRefreshBtn = document.getElementById('error-force-refresh-btn');
   const backBtn = document.getElementById('error-back-btn');
 
   if (refreshBtn) {
-    refreshBtn.addEventListener('click', () => {
+    refreshBtn.addEventListener('click', async () => {
+      console.log('🔄 用户点击刷新按钮', {
+        timestamp: Date.now(),
+        enableCleanup,
+        refreshTimeout,
+      });
+
       if (config.onRefresh) {
         config.onRefresh();
       } else {
-        window.location.reload();
+        // 使用增强的刷新执行器
+        const refreshOptions: RefreshOptions = {
+          timeout: refreshTimeout,
+          strategy: 'standard',
+          showLoadingState: true,
+          logDetails: true,
+          enableCleanup,
+        };
+
+        try {
+          await refreshExecutor.executeRefresh(refreshOptions);
+        } catch (error) {
+          console.error('刷新执行失败:', error);
+          if (config.onRefreshTimeout) {
+            config.onRefreshTimeout();
+          }
+        }
+      }
+    });
+  }
+
+  if (forceRefreshBtn) {
+    forceRefreshBtn.addEventListener('click', async () => {
+      console.log('🔄 用户点击强制刷新按钮', {
+        timestamp: Date.now(),
+      });
+
+      // 使用强制刷新策略
+      const refreshOptions: RefreshOptions = {
+        timeout: 2000, // 更短的超时时间
+        strategy: 'force',
+        showLoadingState: true,
+        logDetails: true,
+        enableCleanup,
+      };
+
+      try {
+        await refreshExecutor.executeRefresh(refreshOptions);
+      } catch (error) {
+        console.error('强制刷新执行失败:', error);
+        if (config.onRefreshTimeout) {
+          config.onRefreshTimeout();
+        }
       }
     });
   }
@@ -431,6 +535,11 @@ export function showFatalError(config: {
   }
 
   console.error('❌ 显示致命错误页面:', config.title);
+  console.log('配置:', {
+    enableCleanup,
+    refreshTimeout,
+    showFallbackButton,
+  });
 }
 
 /**
@@ -505,4 +614,148 @@ export function testFatalErrorDisplay(): void {
 
     console.log('🧪 测试完成！请手动验证弹窗显示和按钮功能');
   }, 100);
+}
+
+/**
+ * 测试刷新卡死场景
+ * 模拟刷新操作被阻塞的情况
+ */
+export function testRefreshDeadlock(): void {
+  console.log('🧪 开始测试刷新卡死场景...');
+
+  // 创建一些阻塞资源
+  const blockingTimers: NodeJS.Timeout[] = [];
+  const blockingIntervals: NodeJS.Timeout[] = [];
+
+  // 创建多个定时器
+  for (let i = 0; i < 10; i++) {
+    const timer = setTimeout(() => {
+      console.log(`定时器 ${i} 执行`);
+    }, 10000);
+    blockingTimers.push(timer);
+  }
+
+  // 创建多个间隔器
+  for (let i = 0; i < 5; i++) {
+    const interval = setInterval(() => {
+      console.log(`间隔器 ${i} 执行`);
+    }, 1000);
+    blockingIntervals.push(interval);
+  }
+
+  // 添加事件监听器
+  const blockingListener = () => {
+    console.log('阻塞事件监听器执行');
+  };
+  window.addEventListener('beforeunload', blockingListener);
+
+  console.log('✅ 已创建阻塞资源:', {
+    定时器: blockingTimers.length,
+    间隔器: blockingIntervals.length,
+    事件监听器: 1,
+  });
+
+  // 显示致命错误弹窗
+  showFatalError({
+    title: '测试刷新卡死场景',
+    message: '已创建多个阻塞资源，测试刷新清理功能',
+    suggestion: '点击刷新按钮，观察清理和刷新流程',
+    enableCleanup: true,
+    refreshTimeout: 3000,
+    showFallbackButton: true,
+    onCleanupComplete: (report) => {
+      console.log('🧪 清理完成报告:', report);
+    },
+    onRefreshTimeout: () => {
+      console.log('🧪 刷新超时触发');
+    },
+  });
+
+  console.log('🧪 测试场景已设置，请点击刷新按钮观察行为');
+}
+
+/**
+ * 获取刷新系统状态
+ * 用于调试和监控
+ */
+export function getRefreshSystemStatus(): {
+  cleanupManager: any;
+  refreshExecutor: any;
+} {
+  const cleanupReport = refreshCleanupManager.getCleanupReport();
+  const refreshExecutor = getRefreshExecutor(refreshCleanupManager);
+  const refreshState = refreshExecutor.getRefreshState();
+  const refreshLogs = refreshExecutor.getRefreshLogs();
+
+  const status = {
+    cleanupManager: {
+      lastCleanupTime: cleanupReport?.timestamp || 0,
+      lastCleanupSuccess: cleanupReport?.success || false,
+      isCleaningUp: refreshCleanupManager.isCleaningUp(),
+    },
+    refreshExecutor: {
+      isRefreshing: refreshState.isRefreshing,
+      currentStrategy: refreshState.currentStrategy,
+      attemptCount: refreshState.attemptCount,
+      maxAttempts: refreshState.maxAttempts,
+      hasTimedOut: refreshState.hasTimedOut,
+      logsCount: refreshLogs.length,
+      recentLogs: refreshLogs.slice(-5),
+    },
+  };
+
+  console.log('📊 刷新系统状态:', status);
+  return status;
+}
+
+/**
+ * 添加性能监控
+ * 记录清理和刷新的耗时
+ */
+export function monitorRefreshPerformance(): void {
+  console.log('📊 开始监控刷新性能...');
+
+  // 监控清理性能
+  const originalExecuteCleanup = refreshCleanupManager.executeCleanup.bind(
+    refreshCleanupManager
+  );
+  refreshCleanupManager.executeCleanup = function () {
+    const startTime = performance.now();
+    const result = originalExecuteCleanup();
+    const duration = performance.now() - startTime;
+
+    console.log(`⏱️ 清理耗时: ${duration.toFixed(2)}ms`, {
+      timersStopped: result.timersStopped,
+      listenersRemoved: result.listenersRemoved,
+      requestsCancelled: result.requestsCancelled,
+      hlsInstancesDestroyed: result.hlsInstancesDestroyed,
+    });
+
+    // 性能警告
+    if (duration > 50) {
+      console.warn(`⚠️ 清理耗时超过50ms: ${duration.toFixed(2)}ms`);
+    }
+
+    return result;
+  };
+
+  console.log('✅ 性能监控已启用');
+}
+
+/**
+ * 在开发模式下自动启用调试功能
+ */
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  // 添加全局测试函数
+  (window as any).testFatalError = testFatalErrorDisplay;
+  (window as any).testRefreshDeadlock = testRefreshDeadlock;
+  (window as any).getRefreshSystemStatus = getRefreshSystemStatus;
+  (window as any).monitorRefreshPerformance = monitorRefreshPerformance;
+
+  console.log('🔧 开发模式：刷新调试功能已启用');
+  console.log('💡 可用的调试函数:');
+  console.log('  - window.testFatalError() - 测试致命错误弹窗');
+  console.log('  - window.testRefreshDeadlock() - 测试刷新卡死场景');
+  console.log('  - window.getRefreshSystemStatus() - 获取刷新系统状态');
+  console.log('  - window.monitorRefreshPerformance() - 启用性能监控');
 }
