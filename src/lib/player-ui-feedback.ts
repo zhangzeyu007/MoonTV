@@ -4,7 +4,7 @@
  */
 
 import { refreshCleanupManager } from './refresh-cleanup-manager';
-import { getRefreshExecutor, RefreshOptions } from './refresh-executor';
+import { getRefreshExecutor } from './refresh-executor';
 
 /**
  * 增强的致命错误配置接口
@@ -467,59 +467,82 @@ export function showFatalError(config: EnhancedFatalErrorConfig): void {
   const backBtn = document.getElementById('error-back-btn');
 
   if (refreshBtn) {
-    refreshBtn.addEventListener('click', async () => {
+    refreshBtn.addEventListener('click', () => {
       console.log('🔄 用户点击刷新按钮', {
         timestamp: Date.now(),
         enableCleanup,
         refreshTimeout,
+        userAgent: navigator.userAgent,
       });
 
       if (config.onRefresh) {
         config.onRefresh();
       } else {
-        // 使用增强的刷新执行器
-        const refreshOptions: RefreshOptions = {
-          timeout: refreshTimeout,
-          strategy: 'standard',
-          showLoadingState: true,
-          logDetails: true,
-          enableCleanup,
-        };
+        // iOS Safari 兼容：在用户手势上下文中同步执行刷新
+        // 不使用 async/await，避免异步上下文导致刷新被阻止
 
-        try {
-          await refreshExecutor.executeRefresh(refreshOptions);
-        } catch (error) {
-          console.error('刷新执行失败:', error);
-          if (config.onRefreshTimeout) {
-            config.onRefreshTimeout();
+        // 1. 立即显示加载状态
+        refreshBtn.textContent = '正在刷新...';
+        refreshBtn.setAttribute('disabled', 'true');
+
+        // 2. 执行清理（如果启用）
+        if (enableCleanup) {
+          try {
+            console.log('🧹 执行清理...');
+            const report = refreshCleanupManager.executeCleanup();
+            console.log('✅ 清理完成:', report);
+          } catch (error) {
+            console.warn('⚠️ 清理失败，但继续刷新:', error);
           }
+        }
+
+        // 3. 立即执行刷新（同步，在用户手势上下文中）
+        try {
+          console.log('🔄 立即执行刷新...');
+          refreshExecutor.standardRefresh();
+        } catch (error) {
+          console.error('❌ 刷新失败:', error);
+          // 刷新失败时恢复按钮状态
+          refreshBtn.textContent = '刷新页面';
+          refreshBtn.removeAttribute('disabled');
+          alert('刷新失败，请手动刷新浏览器（iOS: 下拉页面刷新）');
         }
       }
     });
   }
 
   if (forceRefreshBtn) {
-    forceRefreshBtn.addEventListener('click', async () => {
+    forceRefreshBtn.addEventListener('click', () => {
       console.log('🔄 用户点击强制刷新按钮', {
         timestamp: Date.now(),
+        userAgent: navigator.userAgent,
       });
 
-      // 使用强制刷新策略
-      const refreshOptions: RefreshOptions = {
-        timeout: 2000, // 更短的超时时间
-        strategy: 'force',
-        showLoadingState: true,
-        logDetails: true,
-        enableCleanup,
-      };
+      // iOS Safari 兼容：同步执行强制刷新
 
-      try {
-        await refreshExecutor.executeRefresh(refreshOptions);
-      } catch (error) {
-        console.error('强制刷新执行失败:', error);
-        if (config.onRefreshTimeout) {
-          config.onRefreshTimeout();
+      // 1. 立即显示加载状态
+      forceRefreshBtn.textContent = '正在刷新...';
+      forceRefreshBtn.setAttribute('disabled', 'true');
+
+      // 2. 执行清理
+      if (enableCleanup) {
+        try {
+          console.log('🧹 执行清理...');
+          refreshCleanupManager.executeCleanup();
+        } catch (error) {
+          console.warn('⚠️ 清理失败，但继续刷新:', error);
         }
+      }
+
+      // 3. 立即执行强制刷新
+      try {
+        console.log('🔄 立即执行强制刷新...');
+        refreshExecutor.forceRefresh();
+      } catch (error) {
+        console.error('❌ 强制刷新失败:', error);
+        forceRefreshBtn.textContent = '强制刷新';
+        forceRefreshBtn.removeAttribute('disabled');
+        alert('强制刷新失败，请手动刷新浏览器（iOS: 下拉页面刷新）');
       }
     });
   }

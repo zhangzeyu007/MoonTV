@@ -194,7 +194,15 @@ export class RefreshExecutor {
     this.state.currentStrategy = 'standard';
 
     try {
-      window.location.reload();
+      // iOS Safari 兼容：使用同步方式立即刷新
+      if (this.isIOSSafari()) {
+        console.log('检测到 iOS Safari，使用兼容刷新方式');
+        // 方法1：使用 assign 方法（iOS Safari 最可靠）
+        const currentUrl = window.location.href;
+        window.location.assign(currentUrl);
+      } else {
+        window.location.reload();
+      }
     } catch (error) {
       console.error('标准刷新失败:', error);
       throw error;
@@ -209,8 +217,16 @@ export class RefreshExecutor {
     this.state.currentStrategy = 'force';
 
     try {
-      const currentUrl = window.location.href;
-      window.location.href = currentUrl;
+      // 添加时间戳强制刷新，绕过缓存
+      const currentUrl = new URL(window.location.href);
+      currentUrl.searchParams.set('_refresh', Date.now().toString());
+
+      if (this.isIOSSafari()) {
+        console.log('iOS Safari: 使用带时间戳的URL刷新');
+        window.location.href = currentUrl.toString();
+      } else {
+        window.location.href = currentUrl.toString();
+      }
     } catch (error) {
       console.error('强制刷新失败:', error);
       throw error;
@@ -226,11 +242,35 @@ export class RefreshExecutor {
 
     try {
       const currentUrl = window.location.href;
-      window.location.replace(currentUrl);
+
+      if (this.isIOSSafari()) {
+        console.log('iOS Safari: 使用 assign 方法刷新');
+        // iOS Safari 上 replace 可能不工作，使用 assign
+        window.location.assign(currentUrl);
+      } else {
+        window.location.replace(currentUrl);
+      }
     } catch (error) {
       console.error('导航刷新失败:', error);
       throw error;
     }
+  }
+
+  /**
+   * 检测是否为 iOS Safari
+   */
+  private isIOSSafari(): boolean {
+    if (typeof window === 'undefined' || !window.navigator) {
+      return false;
+    }
+
+    const ua = window.navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(ua);
+    const isWebKit = /WebKit/.test(ua);
+    const isNotChrome = !/CriOS|Chrome/.test(ua);
+    const isNotFirefox = !/FxiOS/.test(ua);
+
+    return isIOS && isWebKit && isNotChrome && isNotFirefox;
   }
 
   /**
