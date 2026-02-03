@@ -30,14 +30,27 @@ export function getImageProxyUrl(): string | null {
 
 /**
  * 处理图片 URL，如果设置了图片代理则使用代理
+ * 对于豆瓣图片（doubanio.com），如果没有配置代理，自动使用内置代理
  */
 export function processImageUrl(originalUrl: string): string {
   if (!originalUrl) return originalUrl;
 
-  const proxyUrl = getImageProxyUrl();
-  if (!proxyUrl) return originalUrl;
+  // 检查是否为豆瓣图片
+  const isDoubanImage = /doubanio\.com/i.test(originalUrl);
 
-  return `${proxyUrl}${encodeURIComponent(originalUrl)}`;
+  // 如果配置了代理，优先使用配置的代理
+  const proxyUrl = getImageProxyUrl();
+  if (proxyUrl) {
+    return `${proxyUrl}${encodeURIComponent(originalUrl)}`;
+  }
+
+  // 对于豆瓣图片，如果没有配置代理，自动使用内置代理
+  if (isDoubanImage && typeof window !== 'undefined') {
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
+  }
+
+  return originalUrl;
 }
 
 export function cleanHtmlTags(text: string): string {

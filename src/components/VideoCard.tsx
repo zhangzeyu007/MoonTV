@@ -60,6 +60,8 @@ export default function VideoCard({
   const router = useRouter();
   const [favorited, setFavorited] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [imageSrc, setImageSrc] = useState<string>('');
+  const [imageError, setImageError] = useState(false);
 
   const isAggregate = from === 'search' && !!items?.length;
 
@@ -113,6 +115,39 @@ export default function VideoCard({
       ? 'movie'
       : 'tv'
     : type;
+
+  // 初始化图片URL
+  useEffect(() => {
+    if (actualPoster) {
+      setImageSrc(processImageUrl(actualPoster));
+      setImageError(false);
+    }
+  }, [actualPoster]);
+
+  // 图片加载错误处理
+  const handleImageError = useCallback(() => {
+    if (actualPoster && !imageError) {
+      // 检查当前URL是否已经使用代理
+      const currentSrc = imageSrc || processImageUrl(actualPoster);
+      const isUsingProxy = currentSrc.includes('/api/image-proxy');
+
+      // 如果还没有使用代理，尝试使用代理
+      if (!isUsingProxy) {
+        const baseUrl =
+          typeof window !== 'undefined' ? window.location.origin : '';
+        const proxyUrl = `${baseUrl}/api/image-proxy?url=${encodeURIComponent(
+          actualPoster
+        )}`;
+        setImageSrc(proxyUrl);
+        setImageError(true);
+      }
+    }
+  }, [imageError, imageSrc, actualPoster]);
+
+  // 检测是否为豆瓣图片
+  const isDoubanImage = useMemo(() => {
+    return /doubanio\.com/i.test(actualPoster);
+  }, [actualPoster]);
 
   // 获取收藏状态
   useEffect(() => {
@@ -361,12 +396,13 @@ export default function VideoCard({
         {!isLoading && <ImagePlaceholder aspectRatio='aspect-[2/3]' />}
         {/* 图片 */}
         <Image
-          src={processImageUrl(actualPoster)}
+          src={imageSrc || processImageUrl(actualPoster)}
           alt={actualTitle}
           fill
           className='object-cover'
-          referrerPolicy='no-referrer'
+          referrerPolicy={isDoubanImage ? 'origin' : 'no-referrer'}
           onLoadingComplete={() => setIsLoading(true)}
+          onError={handleImageError}
         />
 
         {/* 悬浮遮罩 */}
