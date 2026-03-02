@@ -6,7 +6,7 @@
       "name": "电影天堂资源"
     },
     "yingju": {
-      "api": "https://caiji.maotaizy.cc/api.php/provide/vod/",
+      "api": "https://caiji.maotaizy.cc/api.php/provide/vod",
       "name": "影剧资源"
     },
     "niuniu": {

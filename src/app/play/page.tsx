@@ -30,6 +30,7 @@ import {
 import { shouldSilenceError } from '@/lib/event-handler-utils';
 import {
   fastPreferSources,
+  fastSourceTester,
   ultraFastSourceSelect,
 } from '@/lib/fast-source-tester';
 import {
@@ -320,6 +321,7 @@ function PlayPageClient() {
   const [sourceSearchError, setSourceSearchError] = useState<string | null>(
     null
   );
+  const [isTestingAllSources, setIsTestingAllSources] = useState(false);
 
   // 优选和测速开关
   const [optimizationEnabled] = useState<boolean>(() => {
@@ -1350,6 +1352,8 @@ function PlayPageClient() {
     }
   };
 
+  // 一键测速所有源并按延迟选出最佳源（实现定义放在 handleSourceChange 之后）
+
   // 更新视频地址
   const updateVideoUrl = async (
     detailData: SearchResult | null,
@@ -1843,6 +1847,106 @@ function PlayPageClient() {
       setError(err instanceof Error ? err.message : '换源失败');
     }
   };
+
+  // 一键测速所有源并按延迟选出最佳源
+  const handleTestAllSources = useCallback(async () => {
+    if (isTestingAllSources) return;
+    if (!availableSources || availableSources.length === 0) return;
+
+    try {
+      setIsTestingAllSources(true);
+
+      // 为当前集数构造所有有效源的播放地址
+      const validSources: Array<{ source: SearchResult; episodeUrl: string }> =
+        [];
+      availableSources.forEach((source) => {
+        if (!source.episodes || source.episodes.length === 0) return;
+
+        let episodeIndex = currentEpisodeIndex;
+        if (episodeIndex >= source.episodes.length) {
+          episodeIndex = 0;
+        }
+        const episodeUrl = source.episodes[episodeIndex];
+        if (!episodeUrl) return;
+
+        validSources.push({ source, episodeUrl });
+      });
+
+      if (validSources.length === 0) {
+        console.warn('一键测速失败：没有有效的播放源');
+        return;
+      }
+
+      const urls = validSources.map((s) => s.episodeUrl);
+
+      // 批量快速测试所有源延迟
+      const testResults = await fastSourceTester.batchQuickTest(urls, true);
+
+      // 将测速结果写入预计算表，供换源列表展示
+      const newVideoInfoMap = new Map<
+        string,
+        {
+          quality: string;
+          loadSpeed: string;
+          pingTime: number;
+          hasError?: boolean;
+        }
+      >();
+
+      testResults.forEach((result, index) => {
+        const source = validSources[index]?.source;
+        if (!source) return;
+        const sourceKey = `${source.source}-${source.id}`;
+        newVideoInfoMap.set(sourceKey, {
+          quality: result.quality || '未知',
+          loadSpeed: result.loadSpeed || '未知',
+          pingTime: result.pingTime,
+          hasError: !result.available,
+        });
+      });
+
+      setPrecomputedVideoInfo(newVideoInfoMap);
+
+      // 选择延迟最低且可用的源作为最佳源
+      const getPing = (s: SearchResult): number => {
+        const info = newVideoInfoMap.get(`${s.source}-${s.id}`);
+        if (!info) return Number.MAX_SAFE_INTEGER;
+        if (info.hasError) return Number.MAX_SAFE_INTEGER - 1;
+        return info.pingTime;
+      };
+
+      const bestSource =
+        [...availableSources]
+          .sort((a, b) => getPing(a) - getPing(b))
+          .find((s) => {
+            const info = newVideoInfoMap.get(`${s.source}-${s.id}`);
+            return info && !info.hasError;
+          }) || availableSources[0];
+
+      if (
+        bestSource &&
+        (bestSource.source !== currentSource || bestSource.id !== currentId)
+      ) {
+        await handleSourceChange(
+          bestSource.source,
+          bestSource.id,
+          bestSource.title || videoTitle
+        );
+      }
+    } catch (err) {
+      console.warn('一键测速所有源失败:', err);
+    } finally {
+      setIsTestingAllSources(false);
+    }
+  }, [
+    availableSources,
+    currentEpisodeIndex,
+    currentId,
+    currentSource,
+    handleSourceChange,
+    isTestingAllSources,
+    videoTitle,
+  ]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyboardShortcuts);
@@ -5332,6 +5436,8 @@ function PlayPageClient() {
                 sourceSearchLoading={sourceSearchLoading}
                 sourceSearchError={sourceSearchError}
                 precomputedVideoInfo={precomputedVideoInfo}
+                onTestAllSources={handleTestAllSources}
+                testingSources={isTestingAllSources}
                 currentDetail={detail}
                 favorited={favorited}
                 onToggleFavorite={handleToggleFavorite}

@@ -47,6 +47,10 @@ interface EpisodeSelectorProps {
   favorited?: boolean;
   /** 收藏切换回调 */
   onToggleFavorite?: () => void;
+  /** 一键测速所有源并自动优选 */
+  onTestAllSources?: () => void;
+  /** 是否正在进行源测速 */
+  testingSources?: boolean;
 }
 
 /**
@@ -68,6 +72,8 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   currentDetail,
   favorited = false,
   onToggleFavorite,
+  onTestAllSources,
+  testingSources = false,
 }) => {
   const router = useRouter();
   const pageCount = Math.ceil(totalEpisodes / episodesPerPage);
@@ -440,6 +446,37 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             </div>
           )}
 
+          {/* 一键测速按钮 */}
+          {!sourceSearchLoading &&
+            !sourceSearchError &&
+            availableSources.length > 0 && (
+              <div className='mb-3'>
+                <button
+                  type='button'
+                  disabled={testingSources}
+                  onClick={() => {
+                    if (testingSources) return;
+                    onTestAllSources?.();
+                  }}
+                  className={`w-full inline-flex items-center justify-center px-3 py-2 rounded-md text-xs font-medium transition-all duration-200
+                    ${
+                      testingSources
+                        ? 'bg-gray-300 text-gray-500 dark:bg-gray-700 dark:text-gray-400 cursor-not-allowed'
+                        : 'bg-green-500 text-white hover:bg-green-600 dark:bg-green-600 dark:hover:bg-green-500 shadow-sm hover:shadow-md'
+                    }`.trim()}
+                >
+                  {testingSources ? (
+                    <>
+                      <span className='inline-block h-3 w-3 mr-2 border-2 border-white/60 border-t-transparent rounded-full animate-spin' />
+                      正在测速全部源并优选...
+                    </>
+                  ) : (
+                    '一键测速全部源并选择最快源'
+                  )}
+                </button>
+              </div>
+            )}
+
           {!sourceSearchLoading &&
             !sourceSearchError &&
             availableSources.length === 0 && (
@@ -457,8 +494,24 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             !sourceSearchError &&
             availableSources.length > 0 && (
               <div className='flex-1 overflow-y-auto space-y-2 pb-20'>
-                {availableSources
+                {[...availableSources]
                   .sort((a, b) => {
+                    const aKey = `${a.source}-${a.id}`;
+                    const bKey = `${b.source}-${b.id}`;
+                    const aInfo = videoInfoMap.get(aKey);
+                    const bInfo = videoInfoMap.get(bKey);
+
+                    // 先按延迟从低到高排序（无数据或错误的排在后面）
+                    const getPing = (info?: VideoInfo): number => {
+                      if (!info) return Number.MAX_SAFE_INTEGER;
+                      if (info.hasError) return Number.MAX_SAFE_INTEGER - 1;
+                      return info.pingTime;
+                    };
+
+                    const pingDiff = getPing(aInfo) - getPing(bInfo);
+                    if (pingDiff !== 0) return pingDiff;
+
+                    // 若延迟相同，再保证当前正在播放的源优先显示
                     const aIsCurrent =
                       a.source?.toString() === currentSource?.toString() &&
                       a.id?.toString() === currentId?.toString();
@@ -467,6 +520,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                       b.id?.toString() === currentId?.toString();
                     if (aIsCurrent && !bIsCurrent) return -1;
                     if (!aIsCurrent && bIsCurrent) return 1;
+
                     return 0;
                   })
                   .map((source, index) => {
