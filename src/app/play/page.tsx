@@ -57,6 +57,7 @@ import { SearchResult } from '@/lib/types';
 import {
   detectPiPSupport,
   getRecommendedReadyState,
+  isIOSSafari,
   isSafariBrowser,
   isWebKitBrowser,
   waitForVideoReady,
@@ -1052,47 +1053,40 @@ function PlayPageClient() {
       });
 
       // iOS Safari / WebKit 专用处理
+      // 重要：iOS Safari 要求 PiP 必须在用户手势的同步调用栈中触发，不能有任何 await，
+      // 否则用户手势上下文丢失会导致 webkitSetPresentationMode 静默失败。
       if (pipApiType === 'webkit') {
-        // @ts-ignore
-        if (typeof video.webkitSetPresentationMode !== 'function') {
-          console.error('[PiP] WebKit API not available');
+        // 在实际 video 上再次确认 API 存在（HLS 等场景下可能与检测时不一致）
+        const setMode = (
+          video as HTMLVideoElement & {
+            webkitSetPresentationMode?: (mode: string) => void;
+          }
+        ).webkitSetPresentationMode;
+        if (typeof setMode !== 'function') {
+          console.error('[PiP] WebKit API not available on this video');
           if (notice && typeof notice.show === 'function') {
-            notice.show('当前浏览器不支持画中画');
+            notice.show('当前环境不支持画中画');
           }
           return;
         }
 
-        // 获取推荐的就绪状态
         const minReadyState = getRecommendedReadyState(pipApiType);
 
-        // 检查视频就绪状态
+        // 不等待：若视频未就绪则直接提示并返回，避免 await 导致用户手势丢失
         if (video.readyState < minReadyState) {
-          console.log('[PiP] Video not ready, waiting...', {
+          console.log('[PiP] Video not ready (sync check)', {
             currentReadyState: video.readyState,
             minReadyState,
           });
-
           if (notice && typeof notice.show === 'function') {
-            notice.show('视频加载中，请稍候...');
+            notice.show('视频加载中，请稍后再试');
           }
-
-          try {
-            // 等待视频就绪
-            await waitForVideoReady(video, {
-              minReadyState,
-              timeout: 5000,
-            });
-          } catch (waitError) {
-            console.error('[PiP] Video ready timeout', waitError);
-            if (notice && typeof notice.show === 'function') {
-              notice.show('视频未就绪，请稍后再试');
-            }
-            return;
-          }
+          return;
         }
 
-        // @ts-ignore
-        const currentMode = video.webkitPresentationMode;
+        const currentMode = (
+          video as HTMLVideoElement & { webkitPresentationMode?: string }
+        ).webkitPresentationMode;
         const targetMode =
           currentMode === 'picture-in-picture'
             ? 'inline'
@@ -1104,11 +1098,8 @@ function PlayPageClient() {
           readyState: video.readyState,
         });
 
-        // 关键：在用户手势上下文中同步调用，不使用 await
-        // @ts-ignore
-        video.webkitSetPresentationMode(targetMode);
+        setMode.call(video, targetMode);
 
-        // 提供用户反馈
         if (notice && typeof notice.show === 'function') {
           notice.show(
             targetMode === 'picture-in-picture' ? '进入画中画' : '退出画中画'
@@ -3113,6 +3104,12 @@ function PlayPageClient() {
             if (!Hls) {
               console.error('HLS.js 未加载');
               return;
+            }
+
+            // iOS Safari：设置 playsInline 以支持内联播放与画中画
+            if (typeof window !== 'undefined' && isIOSSafari()) {
+              video.setAttribute('playsinline', 'true');
+              video.playsInline = true;
             }
 
             if (video.hls) {
